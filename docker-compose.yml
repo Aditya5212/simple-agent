@@ -1,0 +1,23 @@
+name: simple-agent
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: simple_agent_db
+    restart: always
+    environment:
+      POSTGRES_USER: mastra
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: simple_agent
+    ports:
+      - "5433:5432"
+    volumes:
+      - simple_agent_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mastra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  simple_agent_pg_data:
