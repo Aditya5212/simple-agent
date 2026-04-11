@@ -22,7 +22,15 @@ export async function POST(
   const updated = await companionMemory.updateMessages({
     messages: messages.map(message => ({
       id: message.id,
-      content: message.content,
+      ...(message.content !== undefined
+        ? {
+          content: {
+            format: 2,
+            parts: [{ type: "text", text: message.content }],
+            content: message.content,
+          },
+        }
+        : {}),
       threadId,
     })),
   });

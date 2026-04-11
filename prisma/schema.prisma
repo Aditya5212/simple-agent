@@ -6,14 +6,33 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Visibility {
+  public
+  private
+}
+
+enum DocumentKind {
+  text
+  code
+  image
+  sheet
+}
+
 model User {
   id            String               @id @default(cuid())
-  email         String?              @unique
+  email         String               @unique
+  password      String?
   name          String?
+  emailVerified Boolean              @default(false)
+  image         String?
+  isAnonymous   Boolean              @default(false)
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
   sessions      Session[]
   conversations AIAgentConversation[]
+  chats         Chat[]
+  documents     Document[]
+  suggestions   Suggestion[]
 }
 
 model Session {
@@ -53,5 +72,87 @@ model AIAgentConversation {
   @@index([sessionId, createdAt])
   @@index([agentType])
   @@index([requestId])
+  @@index([createdAt])
+}
+
+model Chat {
+  id         String      @id @default(uuid())
+  createdAt  DateTime    @default(now())
+  title      String
+  userId     String
+  visibility Visibility  @default(private)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages   Message[]
+  votes      Vote[]
+  streams    Stream[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Message {
+  id          String   @id @default(uuid())
+  chatId      String
+  role        String
+  parts       Json
+  attachments Json
+  createdAt   DateTime @default(now())
+  chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  votes       Vote[]
+
+  @@index([chatId])
+  @@index([createdAt])
+  @@map("Message_v2")
+}
+
+model Vote {
+  chatId    String
+  messageId String
+  isUpvoted Boolean
+  chat      Chat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([chatId, messageId])
+  @@map("Vote_v2")
+}
+
+model Document {
+  id        String       @default(uuid())
+  createdAt DateTime     @default(now())
+  title     String
+  content   String?
+  kind      DocumentKind @default(text)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  suggestions Suggestion[]
+
+  @@id([id, createdAt])
+  @@index([userId])
+}
+
+model Suggestion {
+  id                 String   @id @default(uuid())
+  documentId         String
+  documentCreatedAt  DateTime
+  originalText       String
+  suggestedText      String
+  description        String?
+  isResolved         Boolean  @default(false)
+  userId             String
+  createdAt          DateTime @default(now())
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document           Document @relation(fields: [documentId, documentCreatedAt], references: [id, createdAt], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([documentId])
+}
+
+model Stream {
+  id        String   @id @default(uuid())
+  chatId    String
+  createdAt DateTime @default(now())
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
   @@index([createdAt])
 }

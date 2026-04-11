@@ -536,9 +536,248 @@ const endpoints: Endpoint[] = [
 }`,
     notes: "Same payload shape as /messages but with optional search + reminders.",
   },
+  {
+    id: "chat-post",
+    section: "Chat",
+    method: "POST",
+    path: "/api/chat",
+    summary: "Generate or continue chat",
+    description:
+      "Streams assistant output, persists messages, and creates a chat when needed.",
+    url: `${baseUrl}/api/chat`,
+    request: `{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "message": {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "role": "user",
+    "parts": [{ "type": "text", "text": "Write a short summary" }]
+  },
+  "selectedChatModel": "default",
+  "selectedVisibilityType": "private"
+}`,
+    response: `SSE stream of UI message chunks; final messages are persisted in DB.`,
+  },
+  {
+    id: "chat-delete",
+    section: "Chat",
+    method: "DELETE",
+    path: "/api/chat?id={chatId}",
+    summary: "Delete a chat",
+    description:
+      "Deletes a chat and related records for the authenticated owner.",
+    url: `${baseUrl}/api/chat?id=550e8400-e29b-41d4-a716-446655440000`,
+    response: `{
+  "id": "550e8400-e29b-41d4-a716-446655440000"
+}`,
+  },
+  {
+    id: "chat-stream",
+    section: "Chat",
+    method: "GET",
+    path: "/api/chat/{id}/stream",
+    summary: "Chat stream heartbeat endpoint",
+    description:
+      "Currently returns 204; reserved endpoint for resumable stream support.",
+    url: `${baseUrl}/api/chat/550e8400-e29b-41d4-a716-446655440000/stream`,
+    response: `HTTP 204 No Content`,
+  },
+  {
+    id: "messages-get",
+    section: "Chat",
+    method: "GET",
+    path: "/api/messages?chatId={chatId}",
+    summary: "Get chat messages with visibility metadata",
+    description:
+      "Returns UI messages and readonly state based on ownership and visibility.",
+    url: `${baseUrl}/api/messages?chatId=550e8400-e29b-41d4-a716-446655440000`,
+    response: `{
+  "messages": [],
+  "visibility": "private",
+  "userId": "user-123",
+  "isReadonly": false
+}`,
+  },
+  {
+    id: "history-get",
+    section: "Chat",
+    method: "GET",
+    path: "/api/history",
+    summary: "List current user's chats",
+    description:
+      "Supports cursor-style pagination via starting_after / ending_before.",
+    url: `${baseUrl}/api/history?limit=10`,
+    response: `{
+  "chats": [],
+  "hasMore": false
+}`,
+  },
+  {
+    id: "history-delete",
+    section: "Chat",
+    method: "DELETE",
+    path: "/api/history",
+    summary: "Delete all current user's chats",
+    description:
+      "Bulk deletes all chats for the authenticated user.",
+    url: `${baseUrl}/api/history`,
+    response: `{
+  "deletedCount": 0
+}`,
+  },
+  {
+    id: "vote-get",
+    section: "Chat",
+    method: "GET",
+    path: "/api/vote?chatId={chatId}",
+    summary: "Get votes for a chat",
+    description:
+      "Returns all message votes for the chat when owned by current user.",
+    url: `${baseUrl}/api/vote?chatId=550e8400-e29b-41d4-a716-446655440000`,
+    response: `[
+  { "chatId": "...", "messageId": "...", "isUpvoted": true }
+]`,
+  },
+  {
+    id: "vote-patch",
+    section: "Chat",
+    method: "PATCH",
+    path: "/api/vote",
+    summary: "Vote on a message",
+    description:
+      "Upserts up/down vote for a message inside a chat.",
+    url: `${baseUrl}/api/vote`,
+    request: `{
+  "chatId": "550e8400-e29b-41d4-a716-446655440000",
+  "messageId": "550e8400-e29b-41d4-a716-446655440001",
+  "type": "up"
+}`,
+    response: `Message voted`,
+  },
+  {
+    id: "document-get",
+    section: "Artifacts",
+    method: "GET",
+    path: "/api/document?id={documentId}",
+    summary: "Get document versions",
+    description:
+      "Returns document entries by id after access checks.",
+    url: `${baseUrl}/api/document?id=doc-123`,
+    response: `[
+  {
+    "id": "doc-123",
+    "title": "Draft",
+    "kind": "text",
+    "content": "..."
+  }
+]`,
+  },
+  {
+    id: "document-post",
+    section: "Artifacts",
+    method: "POST",
+    path: "/api/document?id={documentId}",
+    summary: "Create or update document",
+    description:
+      "Creates a new document entry or updates manual edits for existing ones.",
+    url: `${baseUrl}/api/document?id=doc-123`,
+    request: `{
+  "title": "Draft",
+  "kind": "text",
+  "content": "Hello world",
+  "isManualEdit": false
+}`,
+    response: `{
+  "id": "doc-123",
+  "title": "Draft",
+  "kind": "text"
+}`,
+  },
+  {
+    id: "document-delete",
+    section: "Artifacts",
+    method: "DELETE",
+    path: "/api/document?id={documentId}&timestamp={iso}",
+    summary: "Delete newer document snapshots",
+    description:
+      "Deletes document versions created after the provided timestamp.",
+    url: `${baseUrl}/api/document?id=doc-123&timestamp=2026-04-11T10:00:00.000Z`,
+    response: `{
+  "count": 1
+}`,
+  },
+  {
+    id: "suggestions-get",
+    section: "Artifacts",
+    method: "GET",
+    path: "/api/suggestions?documentId={documentId}",
+    summary: "Get document suggestions",
+    description:
+      "Returns saved suggestions for a document when owned by current user.",
+    url: `${baseUrl}/api/suggestions?documentId=doc-123`,
+    response: `[
+  {
+    "id": "sug-1",
+    "documentId": "doc-123",
+    "originalText": "...",
+    "suggestedText": "..."
+  }
+]`,
+  },
+  {
+    id: "files-upload",
+    section: "Artifacts",
+    method: "POST",
+    path: "/api/files/upload",
+    summary: "Upload image attachment",
+    description:
+      "Uploads JPEG/PNG up to 5MB and returns public blob metadata.",
+    url: `${baseUrl}/api/files/upload`,
+    request: `multipart/form-data with field: file`,
+    response: `{
+  "url": "https://...",
+  "pathname": "image.png"
+}`,
+  },
+  {
+    id: "models-get",
+    section: "Models",
+    method: "GET",
+    path: "/api/models",
+    summary: "List model capabilities",
+    description:
+      "Returns curated model capabilities; demo mode may also include model list.",
+    url: `${baseUrl}/api/models`,
+    response: `{
+  "model-id": {
+    "input": ["text"],
+    "output": ["text"]
+  }
+}`,
+  },
+  {
+    id: "auth-guest",
+    section: "Auth",
+    method: "GET",
+    path: "/api/auth/guest",
+    summary: "Start guest sign-in",
+    description:
+      "If already authenticated, redirects home; otherwise signs in with guest credentials.",
+    url: `${baseUrl}/api/auth/guest?redirectUrl=/`,
+    response: `302 Redirect to auth flow or app root`,
+  },
 ];
 
-const sectionOrder = ["Agent", "Embeddings", "Threads", "Messages", "Memory"];
+const sectionOrder = [
+  "Agent",
+  "Embeddings",
+  "Threads",
+  "Messages",
+  "Memory",
+  "Chat",
+  "Artifacts",
+  "Models",
+  "Auth",
+];
 
 const methodStyles: Record<Endpoint["method"], string> = {
   GET: "bg-emerald-200 text-emerald-900",
@@ -621,7 +860,7 @@ function Field({ label, value, mono: isMono, scroll }: FieldProps) {
       </div>
       <pre
         className={`whitespace-pre-wrap text-sm leading-relaxed ${
-          isMono ? "font-[var(--font-mono)]" : "font-[var(--font-display)]"
+          isMono ? "font-(--font-mono)" : "font-(--font-display)"
         } ${scroll ? "max-h-64 overflow-auto" : ""}`}
       >
         {value}
@@ -725,7 +964,7 @@ function TestPanel({ endpoint, activeBaseUrl }: { endpoint: Endpoint; activeBase
             onChange={event => setPayload(event.target.value)}
             rows={Math.max(6, payload.split("\n").length)}
             placeholder="{}"
-            className="mt-2 w-full rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-xs font-semibold text-black shadow-sm font-[var(--font-mono)]"
+            className="mt-2 w-full rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-xs text-black shadow-sm font-(--font-mono)"
           />
         </div>
       ) : null}
@@ -757,7 +996,7 @@ function TestPanel({ endpoint, activeBaseUrl }: { endpoint: Endpoint; activeBase
                 >
                   {result.status} {result.statusText}
                 </div>
-                <pre className="max-h-64 whitespace-pre-wrap overflow-auto font-[var(--font-mono)]">
+                <pre className="max-h-64 whitespace-pre-wrap overflow-auto font-(--font-mono)">
                   {result.body || "(empty response)"}
                 </pre>
               </>
@@ -827,13 +1066,9 @@ function EndpointCard({
 }
 
 export default function DocsPage() {
-  const [activeBaseUrl, setActiveBaseUrl] = useState(baseUrl);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setActiveBaseUrl(window.location.origin);
-    }
-  }, []);
+  const [activeBaseUrl, setActiveBaseUrl] = useState(() =>
+    typeof window !== "undefined" ? window.location.origin : baseUrl
+  );
 
   const sections = sectionOrder
     .map(section => ({
@@ -882,9 +1117,9 @@ export default function DocsPage() {
         }
       `}</style>
       <div className="relative overflow-hidden">
-        <div className="pointer-events-none absolute -top-32 left-10 h-64 w-64 rounded-full bg-gradient-to-br from-orange-200 via-rose-200 to-amber-100 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 right-10 h-72 w-72 rounded-full bg-gradient-to-br from-emerald-200 via-lime-200 to-teal-100 blur-3xl" />
-        <div className="pointer-events-none absolute left-1/2 top-10 h-36 w-36 -translate-x-1/2 rounded-full bg-gradient-to-r from-blue-200 to-cyan-200 opacity-70 blur-2xl animate-[float_9s_ease-in-out_infinite]" />
+        <div className="pointer-events-none absolute -top-32 left-10 h-64 w-64 rounded-full bg-linear-to-br from-orange-200 via-rose-200 to-amber-100 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 right-10 h-72 w-72 rounded-full bg-linear-to-br from-emerald-200 via-lime-200 to-teal-100 blur-3xl" />
+        <div className="pointer-events-none absolute left-1/2 top-10 h-36 w-36 -translate-x-1/2 rounded-full bg-linear-to-r from-blue-200 to-cyan-200 opacity-70 blur-2xl animate-[float_9s_ease-in-out_infinite]" />
         <header className="relative mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 pb-6 pt-14">
           <div className="fade-up inline-flex items-center gap-3 rounded-full border border-black/10 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em]">
             API Docs
@@ -902,7 +1137,7 @@ export default function DocsPage() {
               <input
                 value={activeBaseUrl}
                 onChange={event => setActiveBaseUrl(event.target.value)}
-                className="rounded-xl border border-black/10 bg-white/80 px-3 py-2 text-xs font-semibold normal-case tracking-normal text-black shadow-sm font-[var(--font-mono)]"
+                className="rounded-xl border border-black/10 bg-white/80 px-3 py-2 text-xs normal-case tracking-normal text-black shadow-sm font-(--font-mono)"
               />
             </label>
             <CopyButton value={activeBaseUrl} label="Copy Base URL" />

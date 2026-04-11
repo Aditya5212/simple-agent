@@ -40,9 +40,9 @@ export async function POST(req: Request) {
 
     const data = (await response.json().catch(() => null)) as
       | {
-          data?: Array<{ embedding: number[] }>;
-          error?: unknown;
-        }
+        data?: Array<{ embedding: number[] }>;
+        error?: unknown;
+      }
       | null;
 
     if (!response.ok) {
@@ -66,9 +66,23 @@ export async function POST(req: Request) {
     });
   }
 
-  const providerOptions = body?.dimensions || body?.user
-    ? { "openai-compatible": { dimensions: body?.dimensions, user: body?.user } }
-    : undefined;
+  let providerOptions:
+    | { "openai-compatible": Record<string, number | string> }
+    | undefined;
+
+  if (body?.dimensions !== undefined || body?.user !== undefined) {
+    const openAiCompatible: Record<string, number | string> = {};
+
+    if (body?.dimensions !== undefined) {
+      openAiCompatible.dimensions = body.dimensions;
+    }
+
+    if (body?.user !== undefined) {
+      openAiCompatible.user = body.user;
+    }
+
+    providerOptions = { "openai-compatible": openAiCompatible };
+  }
 
   const result = await embedder.doEmbed({
     values: sanitized,
