@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String               @id @default(cuid())
+  email         String?              @unique
+  name          String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  sessions      Session[]
+  conversations AIAgentConversation[]
+}
+
+model Session {
+  id           String               @id @default(cuid())
+  userId       String
+  sessionType  String               @default("AI_AGENT")
+  title        String?
+  metadata     Json?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations AIAgentConversation[]
+
+  @@index([userId])
+  @@index([sessionType])
+}
+
+model AIAgentConversation {
+  id           String   @id @default(cuid())
+  userId       String
+  sessionId    String
+  agentType    String
+  userMessage  String
+  aiResponse   String   @db.Text
+  inputTokens  Int
+  outputTokens Int
+  totalCost    Float
+  requestId    String
+  metadata     Json?
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sessionId])
+  @@index([sessionId, createdAt])
+  @@index([agentType])
+  @@index([requestId])
+  @@index([createdAt])
+}
