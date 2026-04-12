@@ -1020,9 +1020,9 @@ Tip: Test this while signed in so browser cookies are sent for auth.`,
     section: "Artifacts",
     method: "GET",
     path: "/api/document?id={documentId}",
-    summary: "Get document versions",
+    summary: "Future route: Get document versions",
     description:
-      "Returns document entries by id after access checks.",
+      "Legacy template endpoint for document version history. Not required for current R2 upload + signed URL flow.",
     url: `${baseUrl}/api/document?id=doc-123`,
     response: `[
   {
@@ -1032,15 +1032,17 @@ Tip: Test this while signed in so browser cookies are sent for auth.`,
     "content": "..."
   }
 ]`,
+    notes:
+      "Future use: only implement/consume this when versioned document editing is introduced.",
   },
   {
     id: "document-post",
     section: "Artifacts",
     method: "POST",
     path: "/api/document?id={documentId}",
-    summary: "Create or update document",
+    summary: "Future route: Create or update document",
     description:
-      "Creates a new document entry or updates manual edits for existing ones.",
+      "Legacy template endpoint for versioned/manual edits. Not part of the current R2-backed ingestion path.",
     url: `${baseUrl}/api/document?id=doc-123`,
     request: `{
   "title": "Draft",
@@ -1053,28 +1055,32 @@ Tip: Test this while signed in so browser cookies are sent for auth.`,
   "title": "Draft",
   "kind": "text"
 }`,
+    notes:
+      "Future use: keep for later editor/versioning workflows; current RAG upload flow uses POST /api/files/upload.",
   },
   {
     id: "document-delete",
     section: "Artifacts",
     method: "DELETE",
     path: "/api/document?id={documentId}&timestamp={iso}",
-    summary: "Delete newer document snapshots",
+    summary: "Future route: Delete newer document snapshots",
     description:
-      "Deletes document versions created after the provided timestamp.",
+      "Legacy snapshot-pruning endpoint tied to document versioning semantics.",
     url: `${baseUrl}/api/document?id=doc-123&timestamp=2026-04-11T10:00:00.000Z`,
     response: `{
   "count": 1
 }`,
+    notes:
+      "Future use: not needed for immutable upload records in current R2 ingestion model.",
   },
   {
     id: "suggestions-get",
     section: "Artifacts",
     method: "GET",
     path: "/api/suggestions?documentId={documentId}",
-    summary: "Get document suggestions",
+    summary: "Future route: Get document suggestions",
     description:
-      "Returns saved suggestions for a document when owned by current user.",
+      "Legacy suggestion endpoint for document editing/review flows. Not required for current upload + retrieval baseline.",
     url: `${baseUrl}/api/suggestions?documentId=doc-123`,
     response: `[
   {
@@ -1084,20 +1090,54 @@ Tip: Test this while signed in so browser cookies are sent for auth.`,
     "suggestedText": "..."
   }
 ]`,
+    notes:
+      "Future use: enable when human-in-the-loop editing and suggestion UX is introduced.",
   },
   {
     id: "files-upload",
     section: "Artifacts",
     method: "POST",
     path: "/api/files/upload",
-    summary: "Upload image attachment",
+    summary: "Upload file to Cloudflare R2",
     description:
-      "Uploads JPEG/PNG up to 5MB and returns public blob metadata.",
+      "Uploads supported image/document files to Cloudflare R2, stores uploaded-document metadata, and queues ingestion job.",
     url: `${baseUrl}/api/files/upload`,
-    request: `multipart/form-data with field: file`,
+    request: `multipart/form-data with fields: file, sessionId (optional)`,
     response: `{
-  "url": "https://...",
-  "pathname": "image.png"
+  "provider": "r2",
+  "bucket": "my-bucket",
+  "key": "documents/user_1/...-report.pdf",
+  "url": "https://files.example.com/documents/user_1/...-report.pdf",
+  "signedUrl": "https://...",
+  "signedUrlExpiresAt": "2026-04-12T12:00:00.000Z",
+  "document": {
+    "id": "cmdoc123",
+    "status": "queued",
+    "sessionId": "cmsession123"
+  },
+  "ingestionJob": {
+    "id": "cmjob123",
+    "status": "queued",
+    "phase": "upload"
+  }
+}`,
+  },
+  {
+    id: "documents-signed-url",
+    section: "Artifacts",
+    method: "GET",
+    path: "/api/documents/{documentId}/signed-url",
+    summary: "Get signed document download URL",
+    description:
+      "Returns a short-lived signed URL for a user-owned uploaded document stored in Cloudflare R2.",
+    url: `${baseUrl}/api/documents/cmdoc123/signed-url?expiresInSeconds=900`,
+    response: `{
+  "documentId": "cmdoc123",
+  "bucket": "my-bucket",
+  "key": "documents/user_1/...-report.pdf",
+  "signedUrl": "https://...",
+  "expiresInSeconds": 900,
+  "expiresAt": "2026-04-12T12:00:00.000Z"
 }`,
   },
   {
@@ -1235,6 +1275,8 @@ function TestPanel({ endpoint, activeBaseUrl }: { endpoint: Endpoint; activeBase
   const [url, setUrl] = useState(() => buildEndpointUrl(endpoint, activeBaseUrl));
   const [hasCustomUrl, setHasCustomUrl] = useState(false);
   const [payload, setPayload] = useState(endpoint.request ?? "");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadSessionId, setUploadSessionId] = useState("");
   const [result, setResult] = useState<TestResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
@@ -1245,8 +1287,14 @@ function TestPanel({ endpoint, activeBaseUrl }: { endpoint: Endpoint; activeBase
   }, [activeBaseUrl, endpoint, hasCustomUrl]);
 
   const bodyAllowed = endpoint.method !== "GET";
+  const isMultipartUpload = endpoint.id === "files-upload";
 
   const handleSend = async () => {
+    if (isMultipartUpload && !uploadFile) {
+      setResult({ error: "Choose a file before sending the upload request." });
+      return;
+    }
+
     setIsRunning(true);
     setResult(null);
     const startedAt = performance.now();
@@ -1255,15 +1303,30 @@ function TestPanel({ endpoint, activeBaseUrl }: { endpoint: Endpoint; activeBase
       const headers: Record<string, string> = {};
       const trimmedPayload = payload.trim();
       const hasBody = bodyAllowed && trimmedPayload.length > 0;
+      let body: BodyInit | undefined;
 
-      if (hasBody) {
-        headers["Content-Type"] = "application/json";
+      if (isMultipartUpload) {
+        const formData = new FormData();
+        formData.append("file", uploadFile as File);
+
+        const sessionId = uploadSessionId.trim();
+        if (sessionId.length > 0) {
+          formData.append("sessionId", sessionId);
+        }
+
+        body = formData;
+      } else {
+        if (hasBody) {
+          headers["Content-Type"] = "application/json";
+          body = trimmedPayload;
+        }
       }
 
       const response = await fetch(url, {
         method: endpoint.method,
         headers,
-        body: hasBody ? trimmedPayload : undefined,
+        credentials: "include",
+        body,
       });
 
       const durationMs = Math.round(performance.now() - startedAt);
@@ -1318,16 +1381,56 @@ function TestPanel({ endpoint, activeBaseUrl }: { endpoint: Endpoint; activeBase
 
       {bodyAllowed ? (
         <div className="mt-4">
-          <label className="text-xs uppercase tracking-[0.2em] text-black/50">
-            Request body
-          </label>
-          <textarea
-            value={payload}
-            onChange={event => setPayload(event.target.value)}
-            rows={Math.max(6, payload.split("\n").length)}
-            placeholder="{}"
-            className="mt-2 w-full rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-xs text-black shadow-sm font-(--font-mono)"
-          />
+          {isMultipartUpload ? (
+            <>
+              <div className="text-xs uppercase tracking-[0.2em] text-black/50">
+                Multipart form-data
+              </div>
+              <div className="mt-2 grid gap-3 md:grid-cols-2">
+                <label className="rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-[11px] uppercase tracking-[0.15em] text-black/60">
+                  File
+                  <input
+                    type="file"
+                    onChange={event => {
+                      const nextFile = event.target.files?.[0] ?? null;
+                      setUploadFile(nextFile);
+                    }}
+                    className="mt-2 block w-full cursor-pointer rounded-lg border border-black/10 bg-white px-2 py-1 text-xs normal-case tracking-normal"
+                  />
+                  <div className="mt-1 text-[10px] normal-case tracking-normal text-black/50">
+                    Allowed: images, PDF, txt, markdown, doc, docx (max 20MB)
+                  </div>
+                </label>
+                <label className="rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-[11px] uppercase tracking-[0.15em] text-black/60">
+                  Session ID (optional)
+                  <input
+                    value={uploadSessionId}
+                    onChange={event => setUploadSessionId(event.target.value)}
+                    placeholder="cmsession123"
+                    className="mt-2 block w-full rounded-lg border border-black/10 bg-white px-2 py-2 text-xs normal-case tracking-normal text-black font-(--font-mono)"
+                  />
+                </label>
+              </div>
+              {uploadFile ? (
+                <div className="mt-2 text-[11px] text-black/60">
+                  Selected: <span className="font-semibold">{uploadFile.name}</span> ({Math.round(uploadFile.size / 1024)} KB)
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <label className="text-xs uppercase tracking-[0.2em] text-black/50">
+                Request body
+              </label>
+              <textarea
+                value={payload}
+                onChange={event => setPayload(event.target.value)}
+                rows={Math.max(6, payload.split("\n").length)}
+                placeholder="{}"
+                className="mt-2 w-full rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-xs text-black shadow-sm font-(--font-mono)"
+              />
+            </>
+          )}
         </div>
       ) : null}
 
@@ -1361,6 +1464,13 @@ function TestPanel({ endpoint, activeBaseUrl }: { endpoint: Endpoint; activeBase
                 <pre className="max-h-64 whitespace-pre-wrap overflow-auto font-(--font-mono)">
                   {result.body || "(empty response)"}
                 </pre>
+                {result.status === 401 ? (
+                  <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                    Unauthorized usually means no auth cookie was sent. Sign in first via
+                    <span className="mx-1 font-(--font-mono)">/api/auth/guest?redirectUrl=/docs</span>
+                    and keep Base URL on the same origin where you are logged in.
+                  </div>
+                ) : null}
               </>
             )
           ) : (

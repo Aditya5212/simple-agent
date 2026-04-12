@@ -18,33 +18,58 @@ enum DocumentKind {
   sheet
 }
 
+enum UploadedDocumentStatus {
+  queued
+  processing
+  ready
+  failed
+}
+
+enum IngestionJobStatus {
+  queued
+  processing
+  completed
+  failed
+}
+
+enum IngestionJobPhase {
+  upload
+  parse
+  chunk
+  embed
+  index
+}
+
 model User {
-  id            String               @id @default(cuid())
-  email         String               @unique
-  password      String?
-  name          String?
-  emailVerified Boolean              @default(false)
-  image         String?
-  isAnonymous   Boolean              @default(false)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  sessions      Session[]
-  conversations AIAgentConversation[]
-  chats         Chat[]
-  documents     Document[]
-  suggestions   Suggestion[]
+  id                String                @id @default(cuid())
+  email             String                @unique
+  password          String?
+  name              String?
+  emailVerified     Boolean               @default(false)
+  image             String?
+  isAnonymous       Boolean               @default(false)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  sessions          Session[]
+  conversations     AIAgentConversation[]
+  chats             Chat[]
+  documents         Document[]
+  suggestions       Suggestion[]
+  uploadedDocuments UploadedDocument[]
+  ingestionJobs     IngestionJob[]
 }
 
 model Session {
-  id           String               @id @default(cuid())
-  userId       String
-  sessionType  String               @default("AI_AGENT")
-  title        String?
-  metadata     Json?
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversations AIAgentConversation[]
+  id                String                @id @default(cuid())
+  userId            String
+  sessionType       String                @default("AI_AGENT")
+  title             String?
+  metadata          Json?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations     AIAgentConversation[]
+  uploadedDocuments UploadedDocument[]
 
   @@index([userId])
   @@index([sessionType])
@@ -76,12 +101,12 @@ model AIAgentConversation {
 }
 
 model Chat {
-  id         String      @id @default(uuid())
-  createdAt  DateTime    @default(now())
+  id         String     @id @default(uuid())
+  createdAt  DateTime   @default(now())
   title      String
   userId     String
-  visibility Visibility  @default(private)
-  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  visibility Visibility @default(private)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages   Message[]
   votes      Vote[]
   streams    Stream[]
@@ -117,13 +142,13 @@ model Vote {
 }
 
 model Document {
-  id        String       @default(uuid())
-  createdAt DateTime     @default(now())
-  title     String
-  content   String?
-  kind      DocumentKind @default(text)
-  userId    String
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String       @default(uuid())
+  createdAt   DateTime     @default(now())
+  title       String
+  content     String?
+  kind        DocumentKind @default(text)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   suggestions Suggestion[]
 
   @@id([id, createdAt])
@@ -131,17 +156,17 @@ model Document {
 }
 
 model Suggestion {
-  id                 String   @id @default(uuid())
-  documentId         String
-  documentCreatedAt  DateTime
-  originalText       String
-  suggestedText      String
-  description        String?
-  isResolved         Boolean  @default(false)
-  userId             String
-  createdAt          DateTime @default(now())
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  document           Document @relation(fields: [documentId, documentCreatedAt], references: [id, createdAt], onDelete: Cascade)
+  id                String   @id @default(uuid())
+  documentId        String
+  documentCreatedAt DateTime
+  originalText      String
+  suggestedText     String
+  description       String?
+  isResolved        Boolean  @default(false)
+  userId            String
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document          Document @relation(fields: [documentId, documentCreatedAt], references: [id, createdAt], onDelete: Cascade)
 
   @@index([userId])
   @@index([documentId])
@@ -155,4 +180,47 @@ model Stream {
 
   @@index([chatId])
   @@index([createdAt])
+}
+
+model UploadedDocument {
+  id            String                 @id @default(cuid())
+  userId        String
+  sessionId     String?
+  filename      String
+  mimeType      String
+  sizeBytes     Int
+  r2Key         String                 @unique
+  checksum      String?
+  status        UploadedDocumentStatus @default(queued)
+  errorMessage  String?
+  metadata      Json?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session       Session?               @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  ingestionJobs IngestionJob[]
+
+  @@index([userId, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([status, createdAt])
+}
+
+model IngestionJob {
+  id           String             @id @default(cuid())
+  documentId   String
+  userId       String
+  status       IngestionJobStatus @default(queued)
+  phase        IngestionJobPhase  @default(upload)
+  attempt      Int                @default(0)
+  errorMessage String?
+  metadata     Json?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  document     UploadedDocument   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, createdAt])
+  @@index([userId, status, createdAt])
 }
