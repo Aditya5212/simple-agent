@@ -54,8 +54,13 @@ import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } 
 import { handleChatStream } from "@mastra/ai-sdk";
 import { auth } from "@/app/(auth)/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  ALLOWED_AGENT_TYPES,
+  asObject,
+  resolveSessionRuntimeInfo,
+  toPrismaJson,
+} from "@/lib/ai/agent-session-utils";
 import { mastra } from "@/mastra";
-import type { Prisma } from "@prisma/client";
 import type { AgentExecutionOptions } from "@mastra/core/agent";
 import type { MemoryConfigInternal } from "@mastra/core/memory";
 
@@ -136,23 +141,9 @@ const defaultModelSettings: Required<ModelSettings> = {
   stop: [],
 };
 
-const allowedAgentTypes = new Set(["simple-agent"]);
-
 function toStringArray(value?: string | string[]) {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-
-  return {};
-}
-
-function toPrismaJson(value: Record<string, unknown>): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
 }
 
 function isUIMessageArray(value: unknown): value is UIMessage[] {
@@ -266,9 +257,9 @@ export async function POST(req: Request) {
       ? body.agentType.trim()
       : "simple-agent";
 
-  if (!allowedAgentTypes.has(requestedAgentType)) {
+  if (!ALLOWED_AGENT_TYPES.has(requestedAgentType)) {
     return Response.json(
-      { error: "unsupported agentType", supportedAgentTypes: [...allowedAgentTypes] },
+      { error: "unsupported agentType", supportedAgentTypes: [...ALLOWED_AGENT_TYPES] },
       { status: 400 }
     );
   }
@@ -362,16 +353,18 @@ export async function POST(req: Request) {
     });
   }
 
-  const existingSessionMetadata = asObject(sessionRecord.metadata);
-  const runtimeSessionKey = sessionRecord.id;
-  const threadId = `${userId}-${runtimeSessionKey}`;
-  const mastraResourceId = `${runtimeSessionKey}-${userId}`;
+  const runtime = resolveSessionRuntimeInfo({
+    sessionId: sessionRecord.id,
+    userId,
+    metadata: sessionRecord.metadata,
+    fallbackAgentType: requestedAgentType,
+  });
+
+  const threadId = runtime.threadId;
+  const mastraResourceId = runtime.resourceId;
 
   const updatedSessionMetadata: Record<string, unknown> = {
-    ...existingSessionMetadata,
-    sessionId: runtimeSessionKey,
-    threadId,
-    resourceId: mastraResourceId,
+    ...runtime.normalizedMetadata,
     agentType: requestedAgentType,
   };
 

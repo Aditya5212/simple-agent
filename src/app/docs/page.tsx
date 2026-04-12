@@ -79,6 +79,227 @@ Session and thread mapping:
 Tip: Test this while signed in so browser cookies are sent for auth.`,
   },
   {
+    id: "agent-sessions-list",
+    section: "Agent",
+    method: "GET",
+    path: "/api/agent/sessions",
+    summary: "List sessions for current user",
+    description:
+      "Lists AI agent sessions for the authenticated user with sidebar-ready title and mapped thread info.",
+    url: `${baseUrl}/api/agent/sessions?limit=20`,
+    response: `{
+  "items": [
+    {
+      "id": "session_123",
+      "title": "Medication follow-up",
+      "metadata": {
+        "sessionId": "session_123",
+        "threadId": "user_1-session_123",
+        "resourceId": "session_123-user_1",
+        "agentType": "simple-agent"
+      },
+      "thread": {
+        "threadId": "user_1-session_123",
+        "resourceId": "session_123-user_1",
+        "title": "Medication follow-up"
+      }
+    }
+  ],
+  "pageInfo": {
+    "limit": 20,
+    "hasMore": false,
+    "nextCursor": null
+  }
+}`,
+    notes:
+      "Title precautions: thread title is treated as user-facing source and session.title is synchronized to match for sidebar consistency.",
+  },
+  {
+    id: "agent-sessions-create",
+    section: "Agent",
+    method: "POST",
+    path: "/api/agent/sessions",
+    summary: "Create a new session and backing thread",
+    description:
+      "Creates an AI session row and creates/syncs the canonical Mastra thread for that session.",
+    url: `${baseUrl}/api/agent/sessions`,
+    request: `{
+  "title": "Insurance claim prep",
+  "agentType": "simple-agent",
+  "metadata": {
+    "source": "sidebar-new-chat"
+  }
+}`,
+    response: `{
+  "session": {
+    "id": "session_123",
+    "title": "Insurance claim prep"
+  },
+  "thread": {
+    "threadId": "user_1-session_123",
+    "resourceId": "session_123-user_1",
+    "created": true
+  }
+}`,
+  },
+  {
+    id: "agent-session-get",
+    section: "Agent",
+    method: "GET",
+    path: "/api/agent/sessions/{sessionId}",
+    summary: "Get one session with metadata",
+    description:
+      "Loads one session, normalizes canonical thread/resource mapping, and syncs thread metadata if needed.",
+    url: `${baseUrl}/api/agent/sessions/session_123`,
+    response: `{
+  "session": {
+    "id": "session_123",
+    "title": "Medication follow-up",
+    "metadata": {
+      "threadId": "user_1-session_123",
+      "resourceId": "session_123-user_1"
+    }
+  },
+  "thread": {
+    "threadId": "user_1-session_123",
+    "resourceId": "session_123-user_1",
+    "metadata": {}
+  },
+  "stats": {
+    "conversationCount": 3
+  }
+}`,
+  },
+  {
+    id: "agent-session-patch",
+    section: "Agent",
+    method: "PATCH",
+    path: "/api/agent/sessions/{sessionId}",
+    summary: "Update session title/metadata",
+    description:
+      "Updates session title and/or metadata, then syncs thread title and metadata in Mastra.",
+    url: `${baseUrl}/api/agent/sessions/session_123`,
+    request: `{
+  "title": "Renamed by user",
+  "metadata": {
+    "pinned": true
+  }
+}`,
+    response: `{
+  "session": {
+    "id": "session_123",
+    "title": "Renamed by user"
+  },
+  "thread": {
+    "threadId": "user_1-session_123",
+    "resourceId": "session_123-user_1"
+  }
+}`,
+  },
+  {
+    id: "agent-session-delete",
+    section: "Agent",
+    method: "DELETE",
+    path: "/api/agent/sessions/{sessionId}",
+    summary: "Delete session and remove thread",
+    description:
+      "Deletes the session and attempts to delete the mapped Mastra thread.",
+    url: `${baseUrl}/api/agent/sessions/session_123`,
+    response: `{
+  "deleted": true,
+  "sessionId": "session_123",
+  "threadId": "user_1-session_123",
+  "threadDeleted": true
+}`,
+  },
+  {
+    id: "agent-session-history",
+    section: "Agent",
+    method: "GET",
+    path: "/api/agent/sessions/{sessionId}/history",
+    summary: "Get session history",
+    description:
+      "Returns memory recall history plus DB conversation rows for a session.",
+    url: `${baseUrl}/api/agent/sessions/session_123/history?page=0&perPage=20`,
+    response: `{
+  "session": {
+    "id": "session_123"
+  },
+  "thread": {
+    "threadId": "user_1-session_123"
+  },
+  "memoryHistory": {
+    "messages": []
+  },
+  "conversations": [],
+  "pageInfo": {
+    "page": 0,
+    "perPage": 20,
+    "totalConversations": 3
+  }
+}`,
+  },
+  {
+    id: "agent-session-status",
+    section: "Agent",
+    method: "PATCH",
+    path: "/api/agent/sessions/{sessionId}/status",
+    summary: "Update session status",
+    description:
+      "Sets session status (active/completed/failed), updates conversation statuses, and syncs thread metadata state.",
+    url: `${baseUrl}/api/agent/sessions/session_123/status`,
+    request: `{
+  "status": "completed"
+}`,
+    response: `{
+  "session": {
+    "id": "session_123",
+    "metadata": {
+      "lastStatus": "completed"
+    }
+  },
+  "updatedConversations": 1,
+  "thread": {
+    "threadId": "user_1-session_123"
+  }
+}`,
+  },
+  {
+    id: "agent-session-working-memory-get",
+    section: "Memory",
+    method: "GET",
+    path: "/api/agent/sessions/{sessionId}/working-memory",
+    summary: "Get working memory by session",
+    description:
+      "Session-centric wrapper over Mastra working memory using canonical session->thread mapping.",
+    url: `${baseUrl}/api/agent/sessions/session_123/working-memory`,
+    response: `{
+  "sessionId": "session_123",
+  "threadId": "user_1-session_123",
+  "resourceId": "session_123-user_1",
+  "workingMemory": "..."
+}`,
+  },
+  {
+    id: "agent-session-working-memory-put",
+    section: "Memory",
+    method: "PUT",
+    path: "/api/agent/sessions/{sessionId}/working-memory",
+    summary: "Update working memory by session",
+    description:
+      "Updates Mastra working memory for the session-mapped thread/resource pair.",
+    url: `${baseUrl}/api/agent/sessions/session_123/working-memory`,
+    request: `{
+  "workingMemory": "User prefers concise summaries"
+}`,
+    response: `{
+  "updated": true,
+  "sessionId": "session_123",
+  "threadId": "user_1-session_123",
+  "resourceId": "session_123-user_1"
+}`,
+  },
+  {
     id: "agent",
     section: "Agent",
     method: "POST",

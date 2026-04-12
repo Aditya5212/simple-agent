@@ -1,4 +1,5 @@
 import { companionMemory } from "@/mastra/storage";
+import { syncSessionTitleForThread } from "@/lib/ai/agent-session-utils";
 
 type RenameThreadRequest = {
   title?: string;
@@ -29,6 +30,8 @@ export async function PATCH(
     title,
     metadata: thread.metadata ?? {},
   });
+
+  await syncSessionTitleForThread({ threadId, title });
 
   return Response.json(updated);
 }
