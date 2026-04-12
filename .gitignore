@@ -6,6 +6,7 @@
 /node_modules
 /chatbot-ref
 /.mastra
+/docs
 /.pnp
 .pnp.*
 .yarn/*

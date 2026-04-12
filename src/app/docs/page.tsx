@@ -39,6 +39,46 @@ const baseUrl = "http://localhost:3000";
 
 const endpoints: Endpoint[] = [
   {
+    id: "agent-chat-stream",
+    section: "Agent",
+    method: "POST",
+    path: "/api/agent/chat",
+    summary: "Stream session-aware agent chat",
+    description:
+      "Authenticated chat endpoint that streams AI SDK UI chunks, creates or reuses a session, and persists conversation status.",
+    url: `${baseUrl}/api/agent/chat`,
+    request: `{
+  "agentType": "simple-agent",
+  "sessionId": "session12345",
+  "message": "Show me my medical data for the last month",
+  "config": {
+    "maxSteps": 5,
+    "modelSettings": {
+      "temperature": 0.2,
+      "maxOutputTokens": 1024
+    },
+    "system": "Be concise and practical"
+  }
+}`,
+  response: `text/event-stream (AI SDK UI stream chunks)`,
+    notes: `UI streaming test example:
+import { DefaultChatTransport } from "ai";
+import { useChat } from "@ai-sdk/react";
+
+const { messages, sendMessage, status } = useChat({
+  transport: new DefaultChatTransport({ api: "/api/agent/chat" }),
+});
+
+sendMessage({ text: "Plan my week" });
+
+Session and thread mapping:
+- sessionId is your persisted app conversation key.
+- threadId is derived server-side as userId-sessionId.
+- resourceId is derived server-side as sessionId-userId.
+
+Tip: Test this while signed in so browser cookies are sent for auth.`,
+  },
+  {
     id: "agent",
     section: "Agent",
     method: "POST",
