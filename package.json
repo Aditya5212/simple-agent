@@ -18,6 +18,7 @@
     "@mastra/memory": "^1.15.0",
     "@mastra/observability": "^1.9.0",
     "@mastra/pg": "^1.9.0",
+    "@mastra/rag": "^2.2.0",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "ai": "^6.0.158",

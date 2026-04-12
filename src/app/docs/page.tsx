@@ -1100,7 +1100,7 @@ Tip: Test this while signed in so browser cookies are sent for auth.`,
     path: "/api/files/upload",
     summary: "Upload file to Cloudflare R2",
     description:
-      "Uploads supported image/document files to Cloudflare R2, stores uploaded-document metadata, and queues ingestion job.",
+      "Uploads supported files to Cloudflare R2 and starts the single ingestion pipeline (parse->chunk->embed->index) for document files.",
     url: `${baseUrl}/api/files/upload`,
     request: `multipart/form-data with fields: file, sessionId (optional)`,
     response: `{
@@ -1118,9 +1118,17 @@ Tip: Test this while signed in so browser cookies are sent for auth.`,
   "ingestionJob": {
     "id": "cmjob123",
     "status": "queued",
-    "phase": "upload"
+    "phase": "upload",
+    "attempt": 0,
+    "statusUrl": "/api/ingestion/jobs/cmjob123"
+  },
+  "pipeline": {
+    "autoStartEnabled": true,
+    "mode": "background_after_response"
   }
 }`,
+    notes:
+      "For non-document uploads (e.g. images), pipeline.mode can be manual_only and ingestion will not auto-start.",
   },
   {
     id: "documents-signed-url",
@@ -1139,6 +1147,128 @@ Tip: Test this while signed in so browser cookies are sent for auth.`,
   "expiresInSeconds": 900,
   "expiresAt": "2026-04-12T12:00:00.000Z"
 }`,
+  },
+  {
+    id: "documents-parse-post",
+    section: "Artifacts",
+    method: "POST",
+    path: "/api/documents/{documentId}/parse",
+    summary: "Testing only: trigger ingestion pipeline",
+    description:
+      "Testing helper route. Production flow triggers ingestion automatically from upload endpoint.",
+    url: `${baseUrl}/api/documents/cmdoc123/parse`,
+    request: `{
+  "mode": "background"
+}`,
+    response: `{
+  "testingOnly": true,
+  "mode": "background",
+  "accepted": true,
+  "documentId": "cmdoc123",
+  "message": "Testing trigger accepted. Production flow uses upload-triggered pipeline."
+}`,
+    notes:
+      "Use mode=inline to run synchronously and return pipeline result fields such as success, ingestionJobId, parseJobId, chunkCount, and vectorIndex.",
+  },
+  {
+    id: "ingestion-status-get",
+    section: "Artifacts",
+    method: "GET",
+    path: "/api/ingestion/jobs/{jobId}",
+    summary: "Get ingestion status for frontend polling",
+    description:
+      "Frontend-friendly status endpoint for upload processing. Poll this route using ingestionJob.id from upload response.",
+    url: `${baseUrl}/api/ingestion/jobs/cmjob123`,
+    response: `{
+  "ingestionJob": {
+    "id": "cmjob123",
+    "documentId": "cmdoc123",
+    "status": "processing",
+    "phase": "embed",
+    "attempt": 1,
+    "errorMessage": null
+  },
+  "document": {
+    "id": "cmdoc123",
+    "filename": "guide.pdf",
+    "status": "processing",
+    "errorMessage": null
+  },
+  "parser": {
+    "parseJobId": "pjb-..."
+  },
+  "pipeline": {
+    "state": "parse_submitted",
+    "trigger": "upload-auto",
+    "failedPhase": null
+  }
+}`,
+    notes:
+      "Stop polling when ingestionJob.status is completed or failed. Treat document.status=ready as fully processed.",
+  },
+  {
+    id: "ingestion-parse-result-get",
+    section: "Artifacts",
+    method: "GET",
+    path: "/api/ingestion/jobs/{jobId}/parse-result",
+    summary: "Testing only: fetch raw parser output",
+    description:
+      "Debug endpoint for parser output inspection. Production ingestion status is managed by the unified pipeline service.",
+    url: `${baseUrl}/api/ingestion/jobs/cmjob123/parse-result?expand=markdown,text,metadata`,
+    response: `{
+  "testingOnly": true,
+  "ingestionJobId": "cmjob123",
+  "parseJobId": "job-abc123",
+  "terminalStatus": "success",
+  "ingestionStatus": {
+    "status": "processing",
+    "phase": "parse"
+  },
+  "result": {
+    "status": "success",
+    "markdown": {
+      "pages": []
+    },
+    "text": {
+      "pages": []
+    }
+  }
+}`,
+    notes:
+      "If parser metadata is missing for the job, this route returns parse_job_not_found (400).",
+  },
+  {
+    id: "rag-retrieve-post",
+    section: "Artifacts",
+    method: "POST",
+    path: "/api/rag/retrieve",
+    summary: "Retrieve document context from PgVector",
+    description:
+      "Queries Mastra PgVector for user-scoped document chunks and returns context plus citations for RAG.",
+    url: `${baseUrl}/api/rag/retrieve`,
+    request: `{
+  "query": "summarize deployment steps",
+  "topK": 6,
+  "sessionId": "cmsession123",
+  "documentIds": ["cmdoc123"]
+}`,
+    response: `{
+  "query": "summarize deployment steps",
+  "topK": 6,
+  "context": "[1] guide.pdf#0\\n...",
+  "citations": [
+    {
+      "vectorId": "cmdoc123:0:...",
+      "score": 0.81,
+      "documentId": "cmdoc123",
+      "filename": "guide.pdf",
+      "chunkIndex": 0
+    }
+  ],
+  "count": 1
+}`,
+    notes:
+      "Retrieval is always user-scoped and can be narrowed with sessionId and documentIds filters.",
   },
   {
     id: "models-get",

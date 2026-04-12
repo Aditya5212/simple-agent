@@ -162,3 +162,47 @@ export async function syncSessionTitleForThread(params: {
 
   return { updated: result.count } as const;
 }
+
+export async function ensureAgentUserRecord(params: {
+  userId: string;
+  email?: string | null;
+  name?: string | null;
+  image?: string | null;
+  userType?: string;
+}) {
+  const { userId, email, name, image, userType } = params;
+
+  const existingById = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+
+  if (existingById) {
+    return { created: false as const };
+  }
+
+  const providedEmail = asNonEmptyString(email);
+  const fallbackEmail = `restored-${userId}`;
+  let candidateEmail = providedEmail ?? fallbackEmail;
+
+  const existingByEmail = await prisma.user.findUnique({
+    where: { email: candidateEmail },
+    select: { id: true },
+  });
+
+  if (existingByEmail && existingByEmail.id !== userId) {
+    candidateEmail = `${fallbackEmail}-${Date.now()}`;
+  }
+
+  await prisma.user.create({
+    data: {
+      id: userId,
+      email: candidateEmail,
+      name: asNonEmptyString(name) ?? null,
+      image: asNonEmptyString(image) ?? null,
+      isAnonymous: userType === "guest",
+    },
+  });
+
+  return { created: true as const };
+}

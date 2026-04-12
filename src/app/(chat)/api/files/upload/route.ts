@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { after } from "next/server";
 import { z } from "zod";
 import { auth } from "@/app/(auth)/auth";
 import {
@@ -8,6 +9,10 @@ import {
   getR2SignedGetUrl,
   putR2Object,
 } from "@/lib/cloudflare-r2";
+import {
+  isDocumentPipelineAutoStartEnabled,
+  runDocumentIngestionPipeline,
+} from "@/lib/ingestion/document-pipeline";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -152,6 +157,24 @@ export async function POST(request: Request) {
         },
       });
 
+      const shouldAutoStartPipeline =
+        objectFolder === "documents" && isDocumentPipelineAutoStartEnabled();
+
+      if (shouldAutoStartPipeline) {
+        after(async () => {
+          const pipelineResult = await runDocumentIngestionPipeline({
+            documentId: document.id,
+            userId: authSession.user.id,
+            ingestionJobId: ingestionJob.id,
+            trigger: "upload-auto",
+          });
+
+          if (!pipelineResult.success) {
+            console.error("[document-pipeline] upload auto-run failed", pipelineResult);
+          }
+        });
+      }
+
       const publicUrl = getR2PublicUrl(key);
       const signedDownload = publicUrl
         ? null
@@ -187,6 +210,13 @@ export async function POST(request: Request) {
           phase: ingestionJob.phase,
           attempt: ingestionJob.attempt,
           createdAt: ingestionJob.createdAt,
+          statusUrl: `/api/ingestion/jobs/${ingestionJob.id}`,
+        },
+        pipeline: {
+          autoStartEnabled: shouldAutoStartPipeline,
+          mode: shouldAutoStartPipeline
+            ? "background_after_response"
+            : "manual_only",
         },
       });
     } catch (_dbError) {

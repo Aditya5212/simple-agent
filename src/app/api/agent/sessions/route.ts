@@ -4,6 +4,7 @@ import { companionMemory } from "@/mastra/storage";
 import {
   ALLOWED_AGENT_TYPES,
   asNonEmptyString,
+  ensureAgentUserRecord,
   ensureThreadSynced,
   parsePositiveInt,
   resolveSessionRuntimeInfo,
@@ -142,6 +143,14 @@ export async function POST(req: Request) {
   }
 
   const userId = authSession.user.id;
+  await ensureAgentUserRecord({
+    userId,
+    email: authSession.user.email,
+    name: authSession.user.name,
+    image: authSession.user.image,
+    userType: authSession.user.type,
+  });
+
   const body = (await req.json().catch(() => null)) as CreateSessionRequest | null;
 
   const requestedAgentType =

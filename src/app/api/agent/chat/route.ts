@@ -57,12 +57,14 @@ import { prisma } from "@/lib/prisma";
 import {
   ALLOWED_AGENT_TYPES,
   asObject,
+  ensureAgentUserRecord,
   resolveSessionRuntimeInfo,
   toPrismaJson,
 } from "@/lib/ai/agent-session-utils";
 import { mastra } from "@/mastra";
 import type { AgentExecutionOptions } from "@mastra/core/agent";
 import type { MemoryConfigInternal } from "@mastra/core/memory";
+import { RequestContext } from "@mastra/core/request-context";
 
 export const maxDuration = 60;
 
@@ -311,6 +313,14 @@ export async function POST(req: Request) {
     : undefined;
 
   const userId = authSession.user.id;
+  await ensureAgentUserRecord({
+    userId,
+    email: authSession.user.email,
+    name: authSession.user.name,
+    image: authSession.user.image,
+    userType: authSession.user.type,
+  });
+
   const latestUserText = getLatestUserText(normalizedMessages) || directMessage;
   const requestedSessionId =
     typeof body?.sessionId === "string" && body.sessionId.trim().length > 0
@@ -370,6 +380,18 @@ export async function POST(req: Request) {
 
   const requestId = crypto.randomUUID();
 
+  const requestContext = new RequestContext<Record<string, unknown>>();
+  requestContext.set("userId", userId);
+  requestContext.set("sessionId", sessionRecord.id);
+  requestContext.set("threadId", threadId);
+  requestContext.set("resourceId", mastraResourceId);
+
+  const toolScopeSystemInstruction =
+    `Tool scope: when calling similaritySearchDocuments, default to userId="${userId}" ` +
+    `and sessionId="${sessionRecord.id}" unless the user explicitly requests a different scope.`;
+
+  const runtimeSystemMessages = [...systemMessages, toolScopeSystemInstruction];
+
   sessionRecord = await prisma.session.update({
     where: { id: sessionRecord.id },
     data: { metadata: toPrismaJson(updatedSessionMetadata) },
@@ -414,8 +436,12 @@ export async function POST(req: Request) {
           maxSteps: body?.config?.maxSteps ?? 5,
           modelSettings,
           providerOptions: body?.config?.providerOptions,
+          requestContext,
           instructions: body?.config?.instructions,
-          system: systemMessages.length > 0 ? systemMessages : undefined,
+          system:
+            runtimeSystemMessages.length > 0
+              ? runtimeSystemMessages
+              : undefined,
           memory: {
             thread: threadId,
             resource: mastraResourceId,
