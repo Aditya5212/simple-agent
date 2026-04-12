@@ -300,6 +300,107 @@ Tip: Test this while signed in so browser cookies are sent for auth.`,
 }`,
   },
   {
+    id: "agent-request-messages",
+    section: "Agent",
+    method: "GET",
+    path: "/api/agent/requests/{requestId}/messages",
+    summary: "Get one request's input/output",
+    description:
+      "Fetches a single persisted agent request by requestId for the authenticated user, including session/thread mapping and usage fields.",
+    url: `${baseUrl}/api/agent/requests/req_123/messages`,
+    response: `{
+  "request": {
+    "requestId": "req_123",
+    "conversationId": "conv_123",
+    "status": "completed",
+    "agentType": "simple-agent"
+  },
+  "session": {
+    "id": "session_123",
+    "title": "Insurance claim prep",
+    "thread": {
+      "threadId": "user_1-session_123",
+      "resourceId": "session_123-user_1"
+    }
+  },
+  "messages": {
+    "userMessage": "Summarize my claim timeline",
+    "aiResponse": "..."
+  },
+  "usage": {
+    "inputTokens": 210,
+    "outputTokens": 180,
+    "totalCost": 0
+  },
+  "metadata": {}
+}`,
+  },
+  {
+    id: "users-me-get",
+    section: "User",
+    method: "GET",
+    path: "/api/users/me",
+    summary: "Get current user profile",
+    description:
+      "Returns authenticated user profile with basic usage counts.",
+    url: `${baseUrl}/api/users/me`,
+    response: `{
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "Aditya",
+    "image": null,
+    "isAnonymous": false,
+    "counts": {
+      "sessions": 4,
+      "conversations": 15,
+      "chats": 8
+    }
+  }
+}`,
+  },
+  {
+    id: "users-me-patch",
+    section: "User",
+    method: "PATCH",
+    path: "/api/users/me",
+    summary: "Update current user profile",
+    description:
+      "Updates profile fields (`name`, `image`) for the authenticated user.",
+    url: `${baseUrl}/api/users/me`,
+    request: `{
+  "name": "Aditya Sharma",
+  "image": "https://example.com/avatar.png"
+}`,
+    response: `{
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "Aditya Sharma",
+    "image": "https://example.com/avatar.png"
+  }
+}`,
+  },
+  {
+    id: "users-me-delete",
+    section: "User",
+    method: "DELETE",
+    path: "/api/users/me",
+    summary: "Delete current user",
+    description:
+      "Deletes the authenticated user and cascades DB data; also attempts to remove mapped agent threads.",
+    url: `${baseUrl}/api/users/me`,
+    response: `{
+  "deleted": true,
+  "userId": "user_123",
+  "sessionsDeleted": 4,
+  "threadsDeleted": 4,
+  "threadsDeleteFailed": 0
+}`,
+    notes:
+      "This is destructive. If called from UI, sign out and redirect after success.",
+  },
+  {
     id: "agent",
     section: "Agent",
     method: "POST",
