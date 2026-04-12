@@ -1,5 +1,7 @@
 import type { UIMessage } from "ai";
 import { z } from "zod";
+import type { ArtifactKind } from "@/components/chat/artifact";
+import type { Suggestion } from "@/lib/db/schema";
 
 export const messageMetadataSchema = z.object({
   createdAt: z.string(),
@@ -7,7 +9,28 @@ export const messageMetadataSchema = z.object({
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
-export type ChatMessage = UIMessage<MessageMetadata>;
+export type ChatTools = Record<string, { input: unknown; output: unknown }>;
+
+export type CustomUIDataTypes = {
+  textDelta: string;
+  imageDelta: string;
+  sheetDelta: string;
+  codeDelta: string;
+  suggestion: Suggestion;
+  appendMessage: string;
+  id: string;
+  title: string;
+  kind: ArtifactKind;
+  clear: null;
+  finish: null;
+  "chat-title": string;
+};
+
+export type ChatMessage = UIMessage<
+  MessageMetadata,
+  CustomUIDataTypes,
+  ChatTools
+>;
 
 export type Attachment = {
   name: string;

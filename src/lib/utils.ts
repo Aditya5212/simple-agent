@@ -1,7 +1,14 @@
-import type { UIMessage } from "ai";
+import type { UIMessage, UIMessagePart } from "ai";
+import { type ClassValue, clsx } from "clsx";
+import { formatISO } from "date-fns";
+import { twMerge } from "tailwind-merge";
+import type { DBMessage, Document } from "@/lib/db/schema";
 import { ChatbotError, type ErrorCode } from "./errors";
-import type { DBMessage } from "./db/schema";
-import type { ChatMessage } from "./types";
+import type { ChatMessage, ChatTools, CustomUIDataTypes } from "./types";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 export const fetcher = async (url: string) => {
   const response = await fetch(url);
@@ -44,13 +51,31 @@ export function generateUUID(): string {
   });
 }
 
+export function getDocumentTimestampByIndex(
+  documents: Document[],
+  index: number
+) {
+  if (!documents) {
+    return new Date();
+  }
+  if (index > documents.length) {
+    return new Date();
+  }
+
+  return documents[index].createdAt;
+}
+
+export function sanitizeText(text: string) {
+  return text.replace("<has_function_call>", "");
+}
+
 export function convertToUIMessages(messages: DBMessage[]): ChatMessage[] {
   return messages.map((message) => ({
     id: message.id,
     role: message.role as "user" | "assistant" | "system",
-    parts: message.parts as UIMessage["parts"],
+    parts: message.parts as UIMessagePart<CustomUIDataTypes, ChatTools>[],
     metadata: {
-      createdAt: message.createdAt.toISOString(),
+      createdAt: formatISO(message.createdAt),
     },
   }));
 }
