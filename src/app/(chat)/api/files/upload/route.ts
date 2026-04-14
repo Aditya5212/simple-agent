@@ -99,10 +99,28 @@ export async function POST(request: Request) {
           id: sessionId,
           userId: authSession.user.id,
         },
-        select: { id: true },
+        select: { id: true, sessionType: true },
       });
 
       if (!session) {
+        try {
+          await prisma.session.create({
+            data: {
+              id: sessionId,
+              userId: authSession.user.id,
+              sessionType: "AI_AGENT",
+              title: "New chat",
+              metadata: {
+                agentType: "simple-agent",
+                visibility: "private",
+                origin: "upload",
+              },
+            },
+          });
+        } catch {
+          return Response.json({ error: "invalid_session_id" }, { status: 400 });
+        }
+      } else if (session.sessionType !== "AI_AGENT") {
         return Response.json({ error: "invalid_session_id" }, { status: 400 });
       }
     }
@@ -176,19 +194,23 @@ export async function POST(request: Request) {
       }
 
       const publicUrl = getR2PublicUrl(key);
-      const signedDownload = publicUrl
-        ? null
-        : await getR2SignedGetUrl({
+      const shouldPreferSignedUrl = objectFolder === "images";
+      const signedDownload = shouldPreferSignedUrl || !publicUrl
+        ? await getR2SignedGetUrl({
             key,
-            fileName: filename,
+            fileName: shouldPreferSignedUrl ? undefined : filename,
             expiresInSeconds: 900,
-          });
+          })
+        : null;
+      const resolvedUrl = shouldPreferSignedUrl
+        ? signedDownload?.url ?? publicUrl
+        : publicUrl;
 
       return Response.json({
         provider: "r2",
         bucket: getR2BucketName(),
         key,
-        url: publicUrl,
+        url: resolvedUrl,
         signedUrl: signedDownload?.url ?? null,
         signedUrlExpiresAt: signedDownload?.expiresAt ?? null,
         filename,

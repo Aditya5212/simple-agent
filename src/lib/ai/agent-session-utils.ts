@@ -2,7 +2,12 @@ import { companionMemory } from "@/mastra/storage";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 
-export const ALLOWED_AGENT_TYPES = new Set(["simple-agent"]);
+export const ALLOWED_AGENT_TYPES = new Set([
+  "simple-agent",
+  "simple-agent-gemini-flash",
+  "simple-agent-gemini-pro",
+  "simple-agent-gemini-lite",
+]);
 export const ALLOWED_SESSION_STATUSES = new Set(["active", "completed", "failed"]);
 
 export type SessionStatus = "active" | "completed" | "failed";

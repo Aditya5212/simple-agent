@@ -1,13 +1,5 @@
-import { z } from "zod";
 import { auth } from "@/app/(auth)/auth";
-import { getChatById, getVotesByChatId, voteMessage } from "@/lib/db/queries";
 import { ChatbotError } from "@/lib/errors";
-
-const voteSchema = z.object({
-  chatId: z.string(),
-  messageId: z.string(),
-  type: z.enum(["up", "down"]),
-});
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -26,35 +18,18 @@ export async function GET(request: Request) {
     return new ChatbotError("unauthorized:vote").toResponse();
   }
 
-  const chat = await getChatById({ id: chatId });
-
-  if (!chat) {
-    return new ChatbotError("not_found:chat").toResponse();
-  }
-
-  if (chat.userId !== session.user.id) {
-    return new ChatbotError("forbidden:vote").toResponse();
-  }
-
-  const votes = await getVotesByChatId({ id: chatId });
-
-  return Response.json(votes, { status: 200 });
+  return Response.json([], { status: 200 });
 }
 
 export async function PATCH(request: Request) {
-  let chatId: string;
-  let messageId: string;
-  let type: "up" | "down";
+  const body = (await request.json().catch(() => null)) as
+    | { chatId?: string }
+    | null;
 
-  try {
-    const parsed = voteSchema.parse(await request.json());
-    chatId = parsed.chatId;
-    messageId = parsed.messageId;
-    type = parsed.type;
-  } catch {
+  if (!body?.chatId) {
     return new ChatbotError(
       "bad_request:api",
-      "Parameters chatId, messageId, and type are required."
+      "Parameter chatId is required."
     ).toResponse();
   }
 
@@ -64,21 +39,5 @@ export async function PATCH(request: Request) {
     return new ChatbotError("unauthorized:vote").toResponse();
   }
 
-  const chat = await getChatById({ id: chatId });
-
-  if (!chat) {
-    return new ChatbotError("not_found:vote").toResponse();
-  }
-
-  if (chat.userId !== session.user.id) {
-    return new ChatbotError("forbidden:vote").toResponse();
-  }
-
-  await voteMessage({
-    chatId,
-    messageId,
-    type,
-  });
-
-  return new Response("Message voted", { status: 200 });
+  return new Response("Vote recorded", { status: 200 });
 }

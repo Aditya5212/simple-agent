@@ -10,7 +10,9 @@ import {
   LockIcon,
   WrenchIcon,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
   type ChangeEvent,
@@ -52,6 +54,14 @@ import {
   PromptInputTools,
 } from "../ai-elements/prompt-input";
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { PaperclipIcon, StopIcon } from "./icons";
 import { PreviewAttachment } from "./preview-attachment";
 import {
@@ -66,6 +76,16 @@ function setCookie(name: string, value: string) {
   const maxAge = 60 * 60 * 24 * 365;
   // biome-ignore lint/suspicious/noDocumentCookie: needed for client-side cookie setting
   document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}`;
+}
+
+function getSafeRedirectPath(pathname: string, search: string) {
+  const basePath = pathname.startsWith("/") && !pathname.startsWith("//")
+    ? pathname
+    : "/";
+  if (!search) {
+    return basePath;
+  }
+  return `${basePath}?${search}`;
 }
 
 function PureMultimodalInput({
@@ -108,6 +128,9 @@ function PureMultimodalInput({
   isLoading?: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { status: sessionStatus } = useSession();
   const { setTheme, resolvedTheme } = useTheme();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -126,6 +149,23 @@ function PureMultimodalInput({
     "input",
     ""
   );
+
+  const redirectPath = getSafeRedirectPath(
+    pathname ?? "/",
+    searchParams.toString()
+  );
+
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+
+  const { data: modelsResponse } = useSWR(
+    `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/models`,
+    (url: string) => fetch(url).then((r) => r.json()),
+    { revalidateOnFocus: false, dedupingInterval: 3_600_000 }
+  );
+
+  const capabilities: Record<string, ModelCapabilities> | undefined =
+    modelsResponse?.capabilities ?? modelsResponse;
+  const supportsVision = capabilities?.[selectedModelId]?.vision ?? false;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -157,7 +197,7 @@ function PureMultimodalInput({
     setInput("");
     switch (cmd.action) {
       case "new":
-        router.push("/");
+        router.push("/chat/new");
         break;
       case "clear":
         setMessages(() => []);
@@ -214,8 +254,31 @@ function PureMultimodalInput({
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState("");
   const [slashIndex, setSlashIndex] = useState(0);
+  const hasSendableImages =
+    supportsVision &&
+    attachments.some((attachment) => attachment.contentType.startsWith("image/"));
+  const canSubmit = input.trim().length > 0 || hasSendableImages;
 
   const submitForm = useCallback(() => {
+    if (sessionStatus === "loading") {
+      toast.error("Checking authentication, please try again.");
+      return;
+    }
+
+    if (sessionStatus === "unauthenticated") {
+      setAuthDialogOpen(true);
+      return;
+    }
+
+    const sendableAttachments = attachments.filter(
+      (attachment) =>
+        supportsVision && attachment.contentType.startsWith("image/")
+    );
+
+    if (!input.trim() && sendableAttachments.length === 0) {
+      return;
+    }
+
     window.history.pushState(
       {},
       "",
@@ -225,7 +288,7 @@ function PureMultimodalInput({
     sendMessage({
       role: "user",
       parts: [
-        ...attachments.map((attachment) => ({
+        ...sendableAttachments.map((attachment) => ({
           type: "file" as const,
           url: attachment.url,
           name: attachment.name,
@@ -254,11 +317,15 @@ function PureMultimodalInput({
     setLocalStorageInput,
     width,
     chatId,
+    supportsVision,
+    sessionStatus,
+    setAuthDialogOpen,
   ]);
 
   const uploadFile = useCallback(async (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("sessionId", chatId);
 
     try {
       const response = await fetch(
@@ -285,21 +352,39 @@ function PureMultimodalInput({
           contentType: contentType ?? file.type,
         };
       }
+      if (response.status === 401) {
+        toast.error("Please sign in to upload files.");
+        setAuthDialogOpen(true);
+        return;
+      }
+
       const { error } = await response.json();
-      toast.error(error);
+      toast.error(error ?? "Upload failed.");
     } catch (_error) {
       toast.error("Failed to upload file, please try again!");
     }
-  }, []);
+  }, [chatId, setAuthDialogOpen]);
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
+      const filteredFiles = supportsVision
+        ? files
+        : files.filter((file) => !file.type.startsWith("image/"));
 
-      setUploadQueue(files.map((file) => file.name));
+      if (filteredFiles.length !== files.length) {
+        toast.error("Selected model does not support images.");
+      }
+
+      if (filteredFiles.length === 0) {
+        setUploadQueue([]);
+        return;
+      }
+
+      setUploadQueue(filteredFiles.map((file) => file.name));
 
       try {
-        const uploadPromises = files.map((file) => uploadFile(file));
+        const uploadPromises = filteredFiles.map((file) => uploadFile(file));
         const uploadedAttachments = await Promise.all(uploadPromises);
         const successfullyUploadedAttachments = uploadedAttachments.filter(
           (attachment) => attachment !== undefined
@@ -315,7 +400,7 @@ function PureMultimodalInput({
         setUploadQueue([]);
       }
     },
-    [setAttachments, uploadFile]
+    [setAttachments, uploadFile, supportsVision]
   );
 
   const handlePaste = useCallback(
@@ -330,6 +415,11 @@ function PureMultimodalInput({
       );
 
       if (imageItems.length === 0) {
+        return;
+      }
+
+      if (!supportsVision) {
+        toast.error("Selected model does not support images.");
         return;
       }
 
@@ -361,7 +451,7 @@ function PureMultimodalInput({
         setUploadQueue([]);
       }
     },
-    [setAttachments, uploadFile]
+    [setAttachments, uploadFile, supportsVision]
   );
 
   useEffect(() => {
@@ -435,7 +525,7 @@ function PureMultimodalInput({
             }
             return;
           }
-          if (!input.trim() && attachments.length === 0) {
+          if (!input.trim() && !hasSendableImages) {
             return;
           }
           if (status === "ready" || status === "error") {
@@ -523,11 +613,7 @@ function PureMultimodalInput({
         />
         <PromptInputFooter className="px-3 pb-3">
           <PromptInputTools>
-            <AttachmentsButton
-              fileInputRef={fileInputRef}
-              selectedModelId={selectedModelId}
-              status={status}
-            />
+            <AttachmentsButton fileInputRef={fileInputRef} status={status} />
             <ModelSelectorCompact
               onModelChange={onModelChange}
               selectedModelId={selectedModelId}
@@ -540,12 +626,12 @@ function PureMultimodalInput({
             <PromptInputSubmit
               className={cn(
                 "h-7 w-7 rounded-xl transition-all duration-200",
-                input.trim()
+                canSubmit
                   ? "bg-foreground text-background hover:opacity-85 active:scale-95"
                   : "bg-muted text-muted-foreground/25 cursor-not-allowed"
               )}
               data-testid="send-button"
-              disabled={!input.trim() || uploadQueue.length > 0}
+              disabled={!canSubmit || uploadQueue.length > 0}
               status={status}
               variant="secondary"
             >
@@ -554,6 +640,12 @@ function PureMultimodalInput({
           )}
         </PromptInputFooter>
       </PromptInput>
+
+      <AuthPromptDialog
+        onOpenChange={setAuthDialogOpen}
+        open={authDialogOpen}
+        redirectPath={redirectPath}
+      />
     </div>
   );
 }
@@ -593,32 +685,22 @@ export const MultimodalInput = memo(
 function PureAttachmentsButton({
   fileInputRef,
   status,
-  selectedModelId,
 }: {
   fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
   status: UseChatHelpers<ChatMessage>["status"];
-  selectedModelId: string;
 }) {
-  const { data: modelsResponse } = useSWR(
-    `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/models`,
-    (url: string) => fetch(url).then((r) => r.json()),
-    { revalidateOnFocus: false, dedupingInterval: 3_600_000 }
-  );
-
-  const caps: Record<string, ModelCapabilities> | undefined =
-    modelsResponse?.capabilities ?? modelsResponse;
-  const hasVision = caps?.[selectedModelId]?.vision ?? false;
+  const canUpload = status === "ready";
 
   return (
     <Button
       className={cn(
         "h-7 w-7 rounded-lg border border-border/40 p-1 transition-colors",
-        hasVision
+        canUpload
           ? "text-foreground hover:border-border hover:text-foreground"
           : "text-muted-foreground/30 cursor-not-allowed"
       )}
       data-testid="attachments-button"
-      disabled={status !== "ready" || !hasVision}
+      disabled={!canUpload}
       onClick={(event) => {
         event.preventDefault();
         fileInputRef.current?.click();
@@ -820,3 +902,46 @@ function PureStopButton({
 }
 
 const StopButton = memo(PureStopButton);
+
+function AuthPromptDialog({
+  open,
+  onOpenChange,
+  redirectPath,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  redirectPath: string;
+}) {
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  const encodedRedirect = encodeURIComponent(redirectPath);
+  const loginHref = `${basePath}/login?redirect=${encodedRedirect}`;
+  const registerHref = `${basePath}/register?redirect=${encodedRedirect}`;
+  const guestHref = `${basePath}/api/auth/guest?redirectUrl=${encodedRedirect}`;
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-lg">Sign in to continue</DialogTitle>
+          <DialogDescription>
+            Create an account to save chats, or continue as guest.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <Button asChild className="w-full">
+            <Link href={loginHref}>Log in</Link>
+          </Button>
+          <Button asChild className="w-full" variant="secondary">
+            <Link href={registerHref}>Sign up</Link>
+          </Button>
+          <Button asChild className="w-full" variant="outline">
+            <a href={guestHref}>Continue as guest</a>
+          </Button>
+        </div>
+        <DialogFooter className="text-center text-xs text-muted-foreground">
+          You can upgrade to a full account anytime.
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

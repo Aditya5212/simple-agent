@@ -14,5 +14,6 @@ export const MODEL_CATALOG = {
     apiKey: process.env.NVIDIA_API_KEY_KIMI,
   },
   geminiFlashPreview: "google/gemini-3-flash-preview",
+  geminiProPreview: "google/gemini-3.1-pro-preview",
   geminiLitePreview: "google/gemini-3.1-flash-lite-preview",
 } satisfies Record<string, ModelConfig>;

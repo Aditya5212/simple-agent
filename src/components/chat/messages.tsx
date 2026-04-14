@@ -14,6 +14,7 @@ type MessagesProps = {
   chatId: string;
   status: UseChatHelpers<ChatMessage>["status"];
   votes: Vote[] | undefined;
+  supportsVotes: boolean;
   messages: ChatMessage[];
   setMessages: UseChatHelpers<ChatMessage>["setMessages"];
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
@@ -29,6 +30,7 @@ function PureMessages({
   chatId,
   status,
   votes,
+  supportsVotes,
   messages,
   setMessages,
   regenerate,
@@ -91,6 +93,7 @@ function PureMessages({
                 hasSentMessage && index === messages.length - 1
               }
               setMessages={setMessages}
+              supportsVotes={supportsVotes}
               vote={
                 votes
                   ? votes.find((vote) => vote.messageId === message.id)

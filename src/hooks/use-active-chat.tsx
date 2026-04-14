@@ -43,6 +43,7 @@ type ActiveChatContextValue = {
   isReadonly: boolean;
   isLoading: boolean;
   votes: Vote[] | undefined;
+  supportsVotes: boolean;
   currentModelId: string;
   setCurrentModelId: (id: string) => void;
   showCreditCardAlert: boolean;
@@ -53,7 +54,12 @@ const ActiveChatContext = createContext<ActiveChatContextValue | null>(null);
 
 function extractChatId(pathname: string): string | null {
   const match = pathname.match(/\/chat\/([^/]+)/);
-  return match ? match[1] : null;
+  if (!match) {
+    return null;
+  }
+
+  const id = match[1];
+  return id === "new" ? null : id;
 }
 
 export function ActiveChatProvider({ children }: { children: ReactNode }) {
@@ -96,6 +102,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   const visibility: VisibilityType = isNewChat
     ? "private"
     : (chatData?.visibility ?? "private");
+  const supportsVotes = isNewChat ? false : (chatData?.supportsVotes ?? false);
 
   const {
     messages,
@@ -160,6 +167,15 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     onError: (error) => {
       if (error.message?.includes("AI Gateway requires a valid credit card")) {
         setShowCreditCardAlert(true);
+      } else if (
+        error.message?.includes("experiencing high demand") ||
+        error.message?.includes("high demand")
+      ) {
+        toast({
+          type: "error",
+          description:
+            "That model is under heavy load. Try again in a moment or switch models.",
+        });
       } else if (error instanceof ChatbotError) {
         toast({ type: "error", description: error.message });
       } else {
@@ -237,7 +253,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   const isReadonly = isNewChat ? false : (chatData?.isReadonly ?? false);
 
   const { data: votes } = useSWR<Vote[]>(
-    !isReadonly && messages.length >= 2
+    !isReadonly && supportsVotes && messages.length >= 2
       ? `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote?chatId=${chatId}`
       : null,
     fetcher,
@@ -260,6 +276,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       isReadonly,
       isLoading: !isNewChat && isLoading,
       votes,
+      supportsVotes,
       currentModelId,
       setCurrentModelId,
       showCreditCardAlert,
@@ -280,6 +297,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       isNewChat,
       isLoading,
       votes,
+      supportsVotes,
       currentModelId,
       showCreditCardAlert,
     ]

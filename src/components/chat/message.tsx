@@ -26,6 +26,7 @@ const PurePreviewMessage = ({
   chatId,
   message,
   vote,
+  supportsVotes,
   isLoading,
   setMessages: _setMessages,
   regenerate: _regenerate,
@@ -37,6 +38,7 @@ const PurePreviewMessage = ({
   chatId: string;
   message: ChatMessage;
   vote: Vote | undefined;
+  supportsVotes: boolean;
   isLoading: boolean;
   setMessages: UseChatHelpers<ChatMessage>["setMessages"];
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
@@ -311,6 +313,7 @@ const PurePreviewMessage = ({
       key={`action-${message.id}`}
       message={message}
       onEdit={onEdit ? () => onEdit(message) : undefined}
+      supportsVotes={supportsVotes}
       vote={vote}
     />
   );

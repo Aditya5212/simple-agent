@@ -7,7 +7,7 @@ import {
   TrashIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { User } from "next-auth";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -32,6 +32,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,9 +47,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 export function AppSidebar({ user }: { user: User | undefined }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { setOpenMobile, toggleSidebar } = useSidebar();
   const { mutate } = useSWRConfig();
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+
+  const redirectPath = (() => {
+    const safePath = pathname?.startsWith("/") && !pathname.startsWith("//")
+      ? pathname
+      : "/";
+    const search = searchParams.toString();
+    return search ? `${safePath}?${search}` : safePath;
+  })();
 
   const handleDeleteAll = () => {
     setShowDeleteAllDialog(false);
@@ -74,7 +85,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                 <SidebarMenuButton
                   asChild
                   className="size-8 !px-0 items-center justify-center group-data-[collapsible=icon]:group-hover/logo:opacity-0"
-                  tooltip="Chatbot"
+                  tooltip="Simple Agent"
                 >
                   <Link href="/" onClick={() => setOpenMobile(false)}>
                     <MessageSquareIcon className="size-4 text-sidebar-foreground/50" />
@@ -109,7 +120,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                     className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                     onClick={() => {
                       setOpenMobile(false);
-                      router.push("/");
+                      router.push("/chat/new");
                     }}
                     tooltip="New Chat"
                   >
@@ -135,7 +146,36 @@ export function AppSidebar({ user }: { user: User | undefined }) {
           <SidebarHistory user={user} />
         </SidebarContent>
         <SidebarFooter className="border-t border-sidebar-border pt-2 pb-3">
-          {user && <SidebarUserNav user={user} />}
+          {user ? (
+            <SidebarUserNav user={user} />
+          ) : (
+            <div className="px-3 group-data-[collapsible=icon]:hidden">
+              <div className="rounded-xl border border-sidebar-border/60 bg-sidebar-accent/40 p-3">
+                <div className="text-[12px] font-medium text-sidebar-foreground">
+                  Save your chats
+                </div>
+                <div className="mt-1 text-[11px] text-sidebar-foreground/60">
+                  Sign in to sync sessions across devices.
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Button asChild className="flex-1" size="sm" variant="secondary">
+                    <Link
+                      href={`/login?redirect=${encodeURIComponent(redirectPath)}`}
+                    >
+                      Log in
+                    </Link>
+                  </Button>
+                  <Button asChild className="flex-1" size="sm" variant="outline">
+                    <Link
+                      href={`/register?redirect=${encodeURIComponent(redirectPath)}`}
+                    >
+                      Sign up
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>

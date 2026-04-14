@@ -198,7 +198,7 @@ export const companionMemory = new Memory({
 `,
     },
     generateTitle: {
-      model: "google/gemini-3.1-flash-lite-preview",
+      model: "nvidia/moonshotai/kimi-k2-instruct",
     },
   },
 });

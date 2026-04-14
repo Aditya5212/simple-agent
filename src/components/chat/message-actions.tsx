@@ -15,12 +15,14 @@ export function PureMessageActions({
   chatId,
   message,
   vote,
+  supportsVotes,
   isLoading,
   onEdit,
 }: {
   chatId: string;
   message: ChatMessage;
   vote: Vote | undefined;
+  supportsVotes?: boolean;
   isLoading: boolean;
   onEdit?: () => void;
 }) {
@@ -73,6 +75,8 @@ export function PureMessageActions({
     );
   }
 
+  const showVotes = supportsVotes !== false;
+
   return (
     <Actions className="-ml-0.5 opacity-0 transition-opacity duration-150 group-hover/message:opacity-100">
       <Action
@@ -82,112 +86,115 @@ export function PureMessageActions({
       >
         <CopyIcon />
       </Action>
+      {showVotes && (
+        <Action
+          className="text-muted-foreground/50 hover:text-foreground"
+          data-testid="message-upvote"
+          disabled={vote?.isUpvoted}
+          onClick={() => {
+            const upvote = fetch(
+              `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote`,
+              {
+                method: "PATCH",
+                body: JSON.stringify({
+                  chatId,
+                  messageId: message.id,
+                  type: "up",
+                }),
+              }
+            );
 
-      <Action
-        className="text-muted-foreground/50 hover:text-foreground"
-        data-testid="message-upvote"
-        disabled={vote?.isUpvoted}
-        onClick={() => {
-          const upvote = fetch(
-            `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote`,
-            {
-              method: "PATCH",
-              body: JSON.stringify({
-                chatId,
-                messageId: message.id,
-                type: "up",
-              }),
-            }
-          );
+            toast.promise(upvote, {
+              loading: "Upvoting Response...",
+              success: () => {
+                mutate<Vote[]>(
+                  `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote?chatId=${chatId}`,
+                  (currentVotes) => {
+                    if (!currentVotes) {
+                      return [];
+                    }
 
-          toast.promise(upvote, {
-            loading: "Upvoting Response...",
-            success: () => {
-              mutate<Vote[]>(
-                `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote?chatId=${chatId}`,
-                (currentVotes) => {
-                  if (!currentVotes) {
-                    return [];
-                  }
+                    const votesWithoutCurrent = currentVotes.filter(
+                      (currentVote) => currentVote.messageId !== message.id
+                    );
 
-                  const votesWithoutCurrent = currentVotes.filter(
-                    (currentVote) => currentVote.messageId !== message.id
-                  );
+                    return [
+                      ...votesWithoutCurrent,
+                      {
+                        chatId,
+                        messageId: message.id,
+                        isUpvoted: true,
+                      },
+                    ];
+                  },
+                  { revalidate: false }
+                );
 
-                  return [
-                    ...votesWithoutCurrent,
-                    {
-                      chatId,
-                      messageId: message.id,
-                      isUpvoted: true,
-                    },
-                  ];
-                },
-                { revalidate: false }
-              );
+                return "Upvoted Response!";
+              },
+              error: "Failed to upvote response.",
+            });
+          }}
+          tooltip="Upvote Response"
+        >
+          <ThumbUpIcon />
+        </Action>
+      )}
 
-              return "Upvoted Response!";
-            },
-            error: "Failed to upvote response.",
-          });
-        }}
-        tooltip="Upvote Response"
-      >
-        <ThumbUpIcon />
-      </Action>
+      {showVotes && (
+        <Action
+          className="text-muted-foreground/50 hover:text-foreground"
+          data-testid="message-downvote"
+          disabled={vote && !vote.isUpvoted}
+          onClick={() => {
+            const downvote = fetch(
+              `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote`,
+              {
+                method: "PATCH",
+                body: JSON.stringify({
+                  chatId,
+                  messageId: message.id,
+                  type: "down",
+                }),
+              }
+            );
 
-      <Action
-        className="text-muted-foreground/50 hover:text-foreground"
-        data-testid="message-downvote"
-        disabled={vote && !vote.isUpvoted}
-        onClick={() => {
-          const downvote = fetch(
-            `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote`,
-            {
-              method: "PATCH",
-              body: JSON.stringify({
-                chatId,
-                messageId: message.id,
-                type: "down",
-              }),
-            }
-          );
+            toast.promise(downvote, {
+              loading: "Downvoting Response...",
+              success: () => {
+                mutate<Vote[]>(
+                  `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote?chatId=${chatId}`,
+                  (currentVotes) => {
+                    if (!currentVotes) {
+                      return [];
+                    }
 
-          toast.promise(downvote, {
-            loading: "Downvoting Response...",
-            success: () => {
-              mutate<Vote[]>(
-                `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote?chatId=${chatId}`,
-                (currentVotes) => {
-                  if (!currentVotes) {
-                    return [];
-                  }
+                    const votesWithoutCurrent = currentVotes.filter(
+                      (currentVote) => currentVote.messageId !== message.id
+                    );
 
-                  const votesWithoutCurrent = currentVotes.filter(
-                    (currentVote) => currentVote.messageId !== message.id
-                  );
+                    return [
+                      ...votesWithoutCurrent,
+                      {
+                        chatId,
+                        messageId: message.id,
+                        isUpvoted: false,
+                      },
+                    ];
+                  },
+                  { revalidate: false }
+                );
 
-                  return [
-                    ...votesWithoutCurrent,
-                    {
-                      chatId,
-                      messageId: message.id,
-                      isUpvoted: false,
-                    },
-                  ];
-                },
-                { revalidate: false }
-              );
-
-              return "Downvoted Response!";
-            },
-            error: "Failed to downvote response.",
-          });
-        }}
-        tooltip="Downvote Response"
-      >
-        <ThumbDownIcon />
-      </Action>
+                return "Downvoted Response!";
+              },
+              error: "Failed to downvote response.",
+            });
+          }}
+          tooltip="Downvote Response"
+        >
+          <ThumbDownIcon />
+        </Action>
+      )}
     </Actions>
   );
 }
@@ -199,6 +206,9 @@ export const MessageActions = memo(
       return false;
     }
     if (prevProps.isLoading !== nextProps.isLoading) {
+      return false;
+    }
+    if (prevProps.supportsVotes !== nextProps.supportsVotes) {
       return false;
     }
 

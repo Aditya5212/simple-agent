@@ -52,8 +52,11 @@
 
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from "ai";
 import { handleChatStream } from "@mastra/ai-sdk";
-import { auth } from "@/app/(auth)/auth";
+import { auth, type UserType } from "@/app/(auth)/auth";
+import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import { prisma } from "@/lib/prisma";
+import { ChatbotError } from "@/lib/errors";
+import { checkIpRateLimit } from "@/lib/ratelimit";
 import {
   ALLOWED_AGENT_TYPES,
   asObject,
@@ -237,10 +240,32 @@ function getUsageFromResponseMessage(message: UIMessage | undefined): UsageSnaps
   return parseUsageSnapshot(metadata.totalUsage ?? metadata.usage);
 }
 
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+
+async function getRecentConversationCount(userId: string) {
+  const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
+  return prisma.aIAgentConversation.count({
+    where: {
+      userId,
+      createdAt: {
+        gt: since,
+      },
+    },
+  });
+}
+
 export async function POST(req: Request) {
   const authSession = await auth();
   if (!authSession?.user?.id) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  await checkIpRateLimit();
+
+  const userType: UserType = authSession.user.type;
+  const recentCount = await getRecentConversationCount(authSession.user.id);
+  if (recentCount > entitlementsByUserType[userType].maxMessagesPerHour) {
+    return new ChatbotError("rate_limit:chat").toResponse();
   }
 
   const body = (await req.json().catch(() => null)) as AgentChatRequest | null;

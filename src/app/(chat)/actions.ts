@@ -6,10 +6,20 @@ import {
   deleteMessagesByChatIdAfterTimestamp,
   getChatById,
   getMessageById,
-  updateChatVisibilityById,
 } from "@/lib/db/queries";
+import { prisma } from "@/lib/prisma";
 import type { ChatMessage } from "@/lib/types";
 import { getTextFromMessage } from "@/lib/utils";
+
+function getBaseMessageId(id: string) {
+  if (id.endsWith("-assistant")) {
+    return id.slice(0, -"-assistant".length);
+  }
+  if (id.endsWith("-user")) {
+    return id.slice(0, -"-user".length);
+  }
+  return id;
+}
 
 export async function generateTitleFromUserMessage({
   message,
@@ -27,6 +37,29 @@ export async function deleteTrailingMessages({ id }: { id: string }) {
   const session = await auth();
   if (!session?.user?.id) {
     throw new Error("Unauthorized");
+  }
+
+  const baseId = getBaseMessageId(id);
+  const conversation = await prisma.aIAgentConversation.findFirst({
+    where: {
+      userId: session.user.id,
+      OR: [{ id: baseId }, { requestId: baseId }],
+    },
+    select: {
+      sessionId: true,
+      createdAt: true,
+    },
+  });
+
+  if (conversation) {
+    await prisma.aIAgentConversation.deleteMany({
+      where: {
+        userId: session.user.id,
+        sessionId: conversation.sessionId,
+        createdAt: { gte: conversation.createdAt },
+      },
+    });
+    return;
   }
 
   const [message] = await getMessageById({ id });
@@ -57,10 +90,30 @@ export async function updateChatVisibility({
     throw new Error("Unauthorized");
   }
 
-  const chat = await getChatById({ id: chatId });
-  if (!chat || chat.userId !== session.user.id) {
-    throw new Error("Unauthorized");
+  const sessionRecord = await prisma.session.findFirst({
+    where: {
+      id: chatId,
+      userId: session.user.id,
+      sessionType: "AI_AGENT",
+    },
+  });
+
+  if (!sessionRecord) {
+    return;
   }
 
-  await updateChatVisibilityById({ chatId, visibility });
+  const metadata =
+    sessionRecord.metadata && typeof sessionRecord.metadata === "object"
+      ? (sessionRecord.metadata as Record<string, unknown>)
+      : {};
+
+  await prisma.session.update({
+    where: { id: sessionRecord.id },
+    data: {
+      metadata: {
+        ...metadata,
+        visibility,
+      },
+    },
+  });
 }

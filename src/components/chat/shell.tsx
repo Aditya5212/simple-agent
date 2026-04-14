@@ -42,6 +42,7 @@ export function ChatShell() {
     isReadonly,
     isLoading,
     votes,
+    supportsVotes,
     currentModelId,
     setCurrentModelId,
     showCreditCardAlert,
@@ -104,6 +105,7 @@ export function ChatShell() {
               selectedModelId={currentModelId}
               setMessages={setMessages}
               status={status}
+              supportsVotes={supportsVotes}
               votes={votes}
             />
 

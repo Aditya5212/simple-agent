@@ -7,6 +7,11 @@ import {
 } from "@mastra/observability";
 import { PinoLogger } from "@mastra/loggers";
 import { simpleAgent } from "./agents/simple-agent";
+import {
+  simpleAgentGeminiFlash,
+  simpleAgentGeminiLite,
+  simpleAgentGeminiPro,
+} from "./agents/simple-agent-gemini";
 import { storage } from "./storage";
 
 const isProd = process.env.NODE_ENV === "production";
@@ -21,6 +26,9 @@ const exporters = [
 export const mastra = new Mastra({
   agents: {
     simpleAgent,
+    simpleAgentGeminiFlash,
+    simpleAgentGeminiPro,
+    simpleAgentGeminiLite,
   },
   storage,
   observability: new Observability({
