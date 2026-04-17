@@ -1,6 +1,7 @@
 import { ModelRouterEmbeddingModel } from "@mastra/core/llm";
 import { Memory } from "@mastra/memory";
 import { PgVector, PostgresStore } from "@mastra/pg";
+import { MODEL_CATALOG } from "./models";
 
 type EmbeddingInputType = "query" | "passage";
 
@@ -198,7 +199,7 @@ export const companionMemory = new Memory({
 `,
     },
     generateTitle: {
-      model: "nvidia/moonshotai/kimi-k2-instruct",
+      model: MODEL_CATALOG.nvidiaKimiK2,
     },
   },
 });

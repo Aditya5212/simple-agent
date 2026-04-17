@@ -96,4 +96,19 @@ export const {
       return session;
     },
   },
+  logger: {
+    error(code, metadata) {
+      const codeLabel = String(code);
+      if (codeLabel.startsWith("CredentialsSignin")) {
+        return;
+      }
+      console.error(`[auth][error] ${codeLabel}`, metadata);
+    },
+    warn(code) {
+      console.warn(`[auth][warn] ${code}`);
+    },
+    debug() {
+      return;
+    },
+  },
 });

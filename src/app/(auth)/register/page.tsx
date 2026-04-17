@@ -34,14 +34,11 @@ export default function Page() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: router/updateSession are stable refs
   useEffect(() => {
     if (state.status === "user_exists") {
-      toast({ type: "error", description: "Account already exists!" });
+      toast({ type: "warning", description: "Account already exists." });
     } else if (state.status === "failed") {
-      toast({ type: "error", description: "Failed to create account!" });
+      toast({ type: "warning", description: "Unable to create account." });
     } else if (state.status === "invalid_data") {
-      toast({
-        type: "error",
-        description: "Failed validating your submission!",
-      });
+      toast({ type: "warning", description: "Enter a valid email and password." });
     } else if (state.status === "success") {
       toast({ type: "success", description: "Account created!" });
       setIsSuccessful(true);
@@ -49,7 +46,7 @@ export default function Page() {
       router.replace(redirectTo);
       router.refresh();
     }
-  }, [state.status, redirectTo]);
+  }, [state, redirectTo]);
 
   const handleSubmit = (formData: FormData) => {
     setEmail(formData.get("email") as string);

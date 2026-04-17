@@ -47,7 +47,7 @@ export default function Page() {
       router.replace(redirectTo);
       router.refresh();
     }
-  }, [state.status, redirectTo]);
+  }, [state, redirectTo]);
 
   const handleSubmit = (formData: FormData) => {
     setEmail(formData.get("email") as string);
