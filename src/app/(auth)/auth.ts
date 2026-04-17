@@ -97,17 +97,18 @@ export const {
     },
   },
   logger: {
-    error(code, metadata) {
-      const codeLabel = String(code);
-      if (codeLabel.startsWith("CredentialsSignin")) {
+    error(error: Error) {
+      const errorName = error?.name ?? "";
+      const errorMessage = error?.message ?? "";
+      if (errorName === "CredentialsSignin" || errorMessage.startsWith("CredentialsSignin")) {
         return;
       }
-      console.error(`[auth][error] ${codeLabel}`, metadata);
+      console.error("[auth][error]", error);
     },
     warn(code) {
       console.warn(`[auth][warn] ${code}`);
     },
-    debug() {
+    debug(_message: string, _metadata?: unknown) {
       return;
     },
   },
