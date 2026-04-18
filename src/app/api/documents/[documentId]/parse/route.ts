@@ -14,10 +14,10 @@
  * }
  */
 
-import { after } from "next/server";
 import { z } from "zod";
 import { auth } from "@/app/(auth)/auth";
 import { runDocumentIngestionPipeline } from "@/lib/ingestion/document-pipeline";
+import { ingestionQueue } from "@/lib/queues/ingestion.queue";
 import { prisma } from "@/lib/prisma";
 
 const parseRequestSchema = z
@@ -86,16 +86,10 @@ export async function POST(request: Request, context: RouteContext) {
     });
   }
 
-  after(async () => {
-    const result = await runDocumentIngestionPipeline({
-      documentId: document.id,
-      userId: authSession.user.id,
-      trigger: "testing-route",
-    });
-
-    if (!result.success) {
-      console.error("[document-pipeline] testing parse trigger failed", result);
-    }
+  await ingestionQueue.add("ingest", {
+    documentId: document.id,
+    userId: authSession.user.id,
+    trigger: "testing-route",
   });
 
   return Response.json({
@@ -103,7 +97,6 @@ export async function POST(request: Request, context: RouteContext) {
     mode,
     accepted: true,
     documentId: document.id,
-    message:
-      "Testing trigger accepted. Production flow uses upload-triggered pipeline.",
+    message: "Testing trigger accepted. Job was enqueued in BullMQ.",
   });
 }

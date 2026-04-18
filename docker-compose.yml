@@ -18,6 +18,22 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+  redis:
+    image: redis:7.2-alpine
+    container_name: simple_agent_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - simple_agent_redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   simple_agent_pg_data:
+  simple_agent_redis_data:

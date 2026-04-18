@@ -322,48 +322,82 @@ function PureMultimodalInput({
     setAuthDialogOpen,
   ]);
 
-  const uploadFile = useCallback(async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("sessionId", chatId);
+  const uploadFile = useCallback(
+    async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("sessionId", chatId);
 
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/files/upload`,
-        {
-          method: "POST",
-          body: formData,
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/files/upload`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        // Attempt to parse JSON body if present.
+        let body: any = null;
+        try {
+          body = await response.json();
+        } catch (_) {
+          body = null;
         }
-      );
 
-      if (response.ok) {
-        const data = await response.json();
-        const { url, signedUrl, pathname, filename, key, contentType } = data;
-        const resolvedUrl = url ?? signedUrl;
+        if (response.ok) {
+          const data = body ?? {};
+          const { url, signedUrl, pathname, filename, key, contentType } = data;
+          const resolvedUrl = url ?? signedUrl;
 
-        if (!resolvedUrl) {
-          toast.error("Upload succeeded but no file URL was returned.");
+          if (!resolvedUrl) {
+            toast.error("Upload succeeded but no file URL was returned.");
+            return;
+          }
+
+          return {
+            url: resolvedUrl,
+            name: pathname ?? filename ?? key ?? file.name,
+            contentType: contentType ?? file.type,
+          };
+        }
+
+        if (response.status === 401) {
+          toast.error("Please sign in to upload files.");
+          setAuthDialogOpen(true);
           return;
         }
 
-        return {
-          url: resolvedUrl,
-          name: pathname ?? filename ?? key ?? file.name,
-          contentType: contentType ?? file.type,
-        };
-      }
-      if (response.status === 401) {
-        toast.error("Please sign in to upload files.");
-        setAuthDialogOpen(true);
-        return;
-      }
+        const errorCode = body?.error;
+        const message = body?.message ?? errorCode ?? "Upload failed.";
 
-      const { error } = await response.json();
-      toast.error(error ?? "Upload failed.");
-    } catch (_error) {
-      toast.error("Failed to upload file, please try again!");
-    }
-  }, [chatId, setAuthDialogOpen]);
+        if (errorCode === "session_required") {
+          toast.error(message, {
+            action: {
+              label: "Create chat",
+              onClick: () => router.push("/chat/new"),
+            },
+          });
+          return;
+        }
+
+        if (errorCode === "invalid_session_id") {
+          toast.error(message, {
+            action: {
+              label: "Open chats",
+              onClick: () => router.push("/"),
+            },
+          });
+          return;
+        }
+
+        toast.error(message);
+      } catch (_error) {
+        toast.error("Failed to upload file, please try again!");
+      }
+    },
+    [chatId, setAuthDialogOpen, router]
+  );
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {

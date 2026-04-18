@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { after } from "next/server";
 import { z } from "zod";
 import { auth } from "@/app/(auth)/auth";
 import {
@@ -11,8 +10,8 @@ import {
 } from "@/lib/cloudflare-r2";
 import {
   isDocumentPipelineAutoStartEnabled,
-  runDocumentIngestionPipeline,
 } from "@/lib/ingestion/document-pipeline";
+import { ingestionQueue } from "@/lib/queues/ingestion.queue";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -93,36 +92,36 @@ export async function POST(request: Request) {
     const filename = fileAsFile.name || "upload.bin";
     const sessionId = asOptionalNonEmptyString(formData.get("sessionId"));
 
-    if (sessionId) {
-      const session = await prisma.session.findFirst({
-        where: {
-          id: sessionId,
-          userId: authSession.user.id,
+    // Enforce that uploads must be associated with an existing session.
+    // Per project flow: uploads must be performed within a created session.
+    if (!sessionId) {
+      return Response.json(
+        {
+          error: "session_required",
+          message:
+            "Uploads must be associated with an existing session. Create a session before uploading.",
         },
-        select: { id: true, sessionType: true },
-      });
+        { status: 400 }
+      );
+    }
 
-      if (!session) {
-        try {
-          await prisma.session.create({
-            data: {
-              id: sessionId,
-              userId: authSession.user.id,
-              sessionType: "AI_AGENT",
-              title: "New chat",
-              metadata: {
-                agentType: "simple-agent",
-                visibility: "private",
-                origin: "upload",
-              },
-            },
-          });
-        } catch {
-          return Response.json({ error: "invalid_session_id" }, { status: 400 });
-        }
-      } else if (session.sessionType !== "AI_AGENT") {
-        return Response.json({ error: "invalid_session_id" }, { status: 400 });
-      }
+    const session = await prisma.session.findFirst({
+      where: {
+        id: sessionId,
+        userId: authSession.user.id,
+      },
+      select: { id: true, sessionType: true },
+    });
+
+    if (!session || session.sessionType !== "AI_AGENT") {
+      return Response.json(
+        {
+          error: "invalid_session_id",
+          message:
+            "Session not found or invalid for this user. Uploads must be tied to an existing AI session.",
+        },
+        { status: 400 }
+      );
     }
 
     const safeName = sanitizeFileName(filename);
@@ -179,18 +178,52 @@ export async function POST(request: Request) {
         objectFolder === "documents" && isDocumentPipelineAutoStartEnabled();
 
       if (shouldAutoStartPipeline) {
-        after(async () => {
-          const pipelineResult = await runDocumentIngestionPipeline({
-            documentId: document.id,
-            userId: authSession.user.id,
-            ingestionJobId: ingestionJob.id,
-            trigger: "upload-auto",
-          });
+        try {
+          await ingestionQueue.add(
+            "ingest",
+            {
+              ingestionJobId: ingestionJob.id,
+              documentId: document.id,
+              userId: authSession.user.id,
+              trigger: "upload-auto",
+            },
+            {
+              // Keep BullMQ id aligned with DB job id to preserve statusUrl semantics.
+              jobId: ingestionJob.id,
+            }
+          );
+        } catch (err) {
+          console.error("Failed to enqueue ingestion job:", err);
 
-          if (!pipelineResult.success) {
-            console.error("[document-pipeline] upload auto-run failed", pipelineResult);
+          // Best-effort cleanup: remove uploaded object and DB records created above.
+          try {
+            await deleteR2Object(key);
+          } catch (_cleanupError) {
+            // ignore
           }
-        });
+
+          try {
+            await prisma.uploadedDocument.delete({ where: { id: document.id } });
+          } catch (_e) {
+            // ignore
+          }
+
+          try {
+            await prisma.ingestionJob.delete({ where: { id: ingestionJob.id } });
+          } catch (_e) {
+            // ignore
+          }
+
+          return Response.json(
+            {
+              error: "ingestion_enqueue_failed",
+              message:
+                "Failed to enqueue ingestion job. Check REDIS_URL and Redis authentication/availability.",
+              detail: err instanceof Error ? err.message : String(err),
+            },
+            { status: 502 }
+          );
+        }
       }
 
       const publicUrl = getR2PublicUrl(key);
@@ -237,7 +270,7 @@ export async function POST(request: Request) {
         pipeline: {
           autoStartEnabled: shouldAutoStartPipeline,
           mode: shouldAutoStartPipeline
-            ? "background_after_response"
+            ? "bullmq_enqueued"
             : "manual_only",
         },
       });

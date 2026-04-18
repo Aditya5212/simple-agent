@@ -20,6 +20,7 @@ type RunPipelineInput = {
   userId: string;
   ingestionJobId?: string;
   trigger: PipelineTrigger;
+  onPhaseChange?: (phase: string, pct: number) => Promise<void> | void;
 };
 
 type ChunkRecord = {
@@ -799,6 +800,8 @@ function parseErrorMessage(error: unknown): string {
 }
 
 export async function runDocumentIngestionPipeline(input: RunPipelineInput) {
+  const onPhaseChange = input.onPhaseChange;
+
   const document = await prisma.uploadedDocument.findFirst({
     where: {
       id: input.documentId,
@@ -998,6 +1001,8 @@ export async function runDocumentIngestionPipeline(input: RunPipelineInput) {
       parseJobId,
     });
 
+    await onPhaseChange?.("parsing", 10);
+
     const parseResult = await waitForParseCompletion({
       parseJobId,
       expand: parseDefaults.defaultExpand,
@@ -1033,6 +1038,8 @@ export async function runDocumentIngestionPipeline(input: RunPipelineInput) {
       parsedSource: parsedContent.source,
     });
 
+    await onPhaseChange?.("chunking", 40);
+
     await prisma.ingestionJob.update({
       where: {
         id: ingestionJob.id,
@@ -1042,6 +1049,8 @@ export async function runDocumentIngestionPipeline(input: RunPipelineInput) {
       },
     });
     currentPhase = "embed";
+
+    await onPhaseChange?.("embedding", 60);
 
     const embeddings = await embedChunkBatch(chunks);
     if (embeddings.length !== chunks.length) {
@@ -1087,6 +1096,8 @@ export async function runDocumentIngestionPipeline(input: RunPipelineInput) {
         documentId: document.id,
       },
     });
+
+    await onPhaseChange?.("indexing", 85);
 
     currentPhase = "index";
 
@@ -1139,6 +1150,8 @@ export async function runDocumentIngestionPipeline(input: RunPipelineInput) {
         },
       });
     });
+
+    await onPhaseChange?.("completed", 100);
 
     return {
       success: true,
