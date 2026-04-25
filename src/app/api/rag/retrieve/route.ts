@@ -17,8 +17,8 @@ const retrieveBodySchema = z
   .object({
     query: z.string().trim().min(1).max(4000),
     topK: z.number().int().positive().max(30).optional(),
-    sessionId: z.string().trim().min(1).max(128).optional(),
-    documentIds: z.array(z.string().trim().min(1).max(128)).max(100).optional(),
+    sessionId: z.string().trim().min(1).max(128),
+    documentIds: z.array(z.string().trim().min(1).max(128)).max(20).optional(),
   })
   .strict();
 
@@ -35,6 +35,18 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Require `sessionId` to be present in requests — retrieval is session-scoped.
+    if (!parsed.data.sessionId) {
+      return Response.json(
+        {
+          error: "missing_session_scope",
+          message:
+            "Retrieval requests must include `sessionId` to scope results to that session.",
+        },
+        { status: 400 }
+      );
+    }
+
     const result = await retrieveDocumentContext({
       userId: authSession.user.id,
       query: parsed.data.query,

@@ -12,6 +12,9 @@ export const MODEL_CATALOG = {
     id: "nvidia/moonshotai/kimi-k2-instruct",
     url: "https://integrate.api.nvidia.com/v1",
     apiKey: process.env.NVIDIA_API_KEY_KIMI,
+    headers: process.env.NVIDIA_API_KEY_KIMI
+      ? { Authorization: `Bearer ${process.env.NVIDIA_API_KEY_KIMI}` }
+      : undefined,
   },
   geminiFlashPreview: "google/gemini-3-flash-preview",
   geminiProPreview: "google/gemini-3.1-pro-preview",

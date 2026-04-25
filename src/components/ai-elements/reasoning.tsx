@@ -215,6 +215,10 @@ export const ReasoningContent = memo(
 
     if (!isOpen) return null;
 
+    // Remove `dir` from props before passing to Streamdown since Streamdown
+    // expects a stricter union for `dir` than React's `string | undefined`.
+    const { dir: _dir, ...streamdownProps } = props as any;
+
     return (
       <div
         className={cn(
@@ -227,7 +231,7 @@ export const ReasoningContent = memo(
           ref={scrollRef}
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
-          <Streamdown plugins={streamdownPlugins} {...props}>
+          <Streamdown plugins={streamdownPlugins} {...streamdownProps}>
             {children}
           </Streamdown>
         </div>

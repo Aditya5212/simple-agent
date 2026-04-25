@@ -1528,7 +1528,7 @@ function TestPanel({ endpoint, activeBaseUrl }: { endpoint: Endpoint; activeBase
                     className="mt-2 block w-full cursor-pointer rounded-lg border border-black/10 bg-white px-2 py-1 text-xs normal-case tracking-normal"
                   />
                   <div className="mt-1 text-[10px] normal-case tracking-normal text-black/50">
-                    Allowed: images, PDF, txt, markdown, doc, docx (max 20MB)
+                    Allowed: images, PDF, txt, markdown, doc, docx (max 10MB)
                   </div>
                 </label>
                 <label className="rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-[11px] uppercase tracking-[0.15em] text-black/60">

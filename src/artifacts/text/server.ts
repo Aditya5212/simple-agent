@@ -6,14 +6,22 @@ import { createDocumentHandler } from "@/lib/artifacts/server";
 export const textDocumentHandler = createDocumentHandler<"text">({
   kind: "text",
   onCreateDocument: async ({ title, dataStream, modelId }) => {
+    if (!modelId) {
+      throw new Error("modelId is required");
+    }
+    const model = getLanguageModel(modelId);
+    if (!model) {
+      throw new Error(`Language model not found: ${modelId}`);
+    }
+
     let draftContent = "";
 
     const { fullStream } = streamText({
-      model: getLanguageModel(modelId),
+      model,
       system:
         "Write about the given topic. Markdown is supported. Use headings wherever appropriate.",
       experimental_transform: smoothStream({ chunking: "word" }),
-      prompt: title,
+      prompt: title ?? "",
     });
 
     for await (const delta of fullStream) {
@@ -30,13 +38,21 @@ export const textDocumentHandler = createDocumentHandler<"text">({
     return draftContent;
   },
   onUpdateDocument: async ({ document, description, dataStream, modelId }) => {
+    if (!modelId) {
+      throw new Error("modelId is required");
+    }
+    const model = getLanguageModel(modelId);
+    if (!model) {
+      throw new Error(`Language model not found: ${modelId}`);
+    }
+
     let draftContent = "";
 
     const { fullStream } = streamText({
-      model: getLanguageModel(modelId),
-      system: updateDocumentPrompt(document.content, "text"),
+      model,
+      system: updateDocumentPrompt(document?.content ?? "", "text"),
       experimental_transform: smoothStream({ chunking: "word" }),
-      prompt: description,
+      prompt: description ?? "",
     });
 
     for await (const delta of fullStream) {

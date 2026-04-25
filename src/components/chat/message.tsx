@@ -19,7 +19,24 @@ import { SparklesIcon } from "./icons";
 import { MessageActions } from "./message-actions";
 import { MessageReasoning } from "./message-reasoning";
 import { PreviewAttachment } from "./preview-attachment";
-import { Weather } from "./weather";
+import { Weather, type WeatherAtLocation } from "./weather";
+
+function hasToolError(output: unknown): output is { error: unknown } {
+  return typeof output === "object" && output !== null && "error" in output;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isWeatherAtLocation(value: unknown): value is WeatherAtLocation {
+  return (
+    isObject(value) &&
+    "current" in value &&
+    "hourly" in value &&
+    "daily" in value
+  );
+}
 
 const PurePreviewMessage = ({
   addToolApprovalResponse,
@@ -46,7 +63,7 @@ const PurePreviewMessage = ({
   requiresScrollPadding: boolean;
   onEdit?: (message: ChatMessage) => void;
 }) => {
-  const attachmentsFromMessage = message.parts.filter(
+  const attachmentsFromMessage = (message.parts ?? []).filter(
     (part) => part.type === "file"
   );
 
@@ -55,14 +72,18 @@ const PurePreviewMessage = ({
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
 
-  const hasAnyContent = message.parts?.some(
-    (part) =>
-      (part.type === "text" && part.text?.trim().length > 0) ||
-      (part.type === "reasoning" &&
-        "text" in part &&
-        part.text?.trim().length > 0) ||
-      part.type.startsWith("tool-")
-  );
+  const hasAnyContent = message.parts?.some((part) => {
+    if (part.type === "text" && typeof (part as any).text === "string") {
+      return (part as any).text.trim().length > 0;
+    }
+    if (part.type === "reasoning" && typeof (part as any).text === "string") {
+      return (part as any).text.trim().length > 0;
+    }
+    if (typeof part.type === "string" && part.type.startsWith("tool-")) {
+      return true;
+    }
+    return false;
+  });
   const isThinking = isAssistant && isLoading && !hasAnyContent;
 
   const attachments = attachmentsFromMessage.length > 0 && (
@@ -70,32 +91,55 @@ const PurePreviewMessage = ({
       className="flex flex-row justify-end gap-2"
       data-testid={"message-attachments"}
     >
-      {attachmentsFromMessage.map((attachment) => (
-        <PreviewAttachment
-          attachment={{
-            name: attachment.filename ?? "file",
-            contentType: attachment.mediaType,
-            url: attachment.url,
-          }}
-          key={attachment.url}
-        />
-      ))}
+      {attachmentsFromMessage.map((attachment, idx) => {
+        // be tolerant of different shape names that may arrive from upload
+        const url =
+          (attachment as any).url ??
+          (attachment as any).signedUrl ??
+          (attachment as any).previewUrl ??
+          "";
+        const mediaType =
+          (attachment as any).mediaType ??
+          (attachment as any).contentType ??
+          (attachment as any).mimeType ??
+          "";
+        const filename =
+          (attachment as any).filename ??
+          (attachment as any).name ??
+          (attachment as any).originalName ??
+          "file";
+
+        return (
+          <PreviewAttachment
+            attachment={{ name: filename, contentType: mediaType, url }}
+            key={`${message.id}-attachment-${idx}-${filename}`}
+          />
+        );
+      })}
     </div>
   );
 
-  const mergedReasoning = message.parts?.reduce(
-    (acc, part) => {
-      if (part.type === "reasoning" && part.text?.trim().length > 0) {
-        return {
-          text: acc.text ? `${acc.text}\n\n${part.text}` : part.text,
-          isStreaming: "state" in part ? part.state === "streaming" : false,
-          rendered: false,
-        };
-      }
-      return acc;
-    },
-    { text: "", isStreaming: false, rendered: false }
-  ) ?? { text: "", isStreaming: false, rendered: false };
+  const mergedReasoning =
+    message.parts?.reduce(
+      (acc, part) => {
+        if (
+          part.type === "reasoning" &&
+          typeof (part as any).text === "string" &&
+          (part as any).text.trim().length > 0
+        ) {
+          return {
+            text: acc.text ? `${acc.text}\n\n${(part as any).text}` : (part as any).text,
+            isStreaming:
+              typeof (part as any).state === "string"
+                ? (part as any).state === "streaming"
+                : false,
+            rendered: false,
+          };
+        }
+        return acc;
+      },
+      { text: "", isStreaming: false, rendered: false }
+    ) ?? { text: "", isStreaming: false, rendered: false };
 
   const parts = message.parts?.map((part, index) => {
     const { type } = part;
@@ -141,9 +185,25 @@ const PurePreviewMessage = ({
       const widthClass = "w-[min(100%,450px)]";
 
       if (state === "output-available") {
+        const output = (part as any).output;
+        if (isWeatherAtLocation(output)) {
+          return (
+            <div className={widthClass} key={toolCallId}>
+              <Weather weatherAtLocation={output} />
+            </div>
+          );
+        }
+
         return (
           <div className={widthClass} key={toolCallId}>
-            <Weather weatherAtLocation={part.output} />
+            <Tool className="w-full" defaultOpen={true}>
+              <ToolHeader state="output-available" type="tool-getWeather" />
+              <ToolContent>
+                <div className="px-4 py-3 text-muted-foreground text-sm">
+                  Unexpected weather output.
+                </div>
+              </ToolContent>
+            </Tool>
           </div>
         );
       }
@@ -222,8 +282,7 @@ const PurePreviewMessage = ({
 
     if (type === "tool-createDocument") {
       const { toolCallId } = part;
-
-      if (part.output && "error" in part.output) {
+      if (hasToolError(part.output)) {
         return (
           <div
             className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-500 dark:bg-red-950/50"
@@ -234,19 +293,22 @@ const PurePreviewMessage = ({
         );
       }
 
+      const documentOutput = (part.output ?? undefined) as
+        | Parameters<typeof DocumentPreview>[0]["result"]
+        | undefined;
+
       return (
         <DocumentPreview
           isReadonly={isReadonly}
           key={toolCallId}
-          result={part.output}
+          result={documentOutput}
         />
       );
     }
 
     if (type === "tool-updateDocument") {
       const { toolCallId } = part;
-
-      if (part.output && "error" in part.output) {
+      if (hasToolError(part.output)) {
         return (
           <div
             className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-500 dark:bg-red-950/50"
@@ -257,12 +319,21 @@ const PurePreviewMessage = ({
         );
       }
 
+      const updateOutput = (part as any).output ?? undefined;
+      const argsObj = isObject(updateOutput)
+        ? ({ ...(updateOutput as Record<string, unknown>) } as Record<string, unknown>)
+        : ({} as Record<string, unknown>);
+
+      const args = ({ ...argsObj, isUpdate: true } as unknown) as
+        | Parameters<typeof DocumentPreview>[0]["args"]
+        | undefined;
+
       return (
         <div className="relative" key={toolCallId}>
           <DocumentPreview
-            args={{ ...part.output, isUpdate: true }}
+            args={args}
             isReadonly={isReadonly}
-            result={part.output}
+            result={updateOutput as Parameters<typeof DocumentPreview>[0]["result"]}
           />
         </div>
       );
@@ -284,14 +355,16 @@ const PurePreviewMessage = ({
               <ToolOutput
                 errorText={undefined}
                 output={
-                  "error" in part.output ? (
+                  hasToolError(part.output) ? (
                     <div className="rounded border p-2 text-red-500">
                       Error: {String(part.output.error)}
                     </div>
                   ) : (
                     <DocumentToolResult
                       isReadonly={isReadonly}
-                      result={part.output}
+                      result={(part.output as any) as Parameters<
+                        typeof DocumentToolResult
+                      >[0]["result"]}
                       type="request-suggestions"
                     />
                   )

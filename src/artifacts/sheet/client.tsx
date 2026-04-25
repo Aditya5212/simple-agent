@@ -70,10 +70,14 @@ export const sheetArtifact = new Artifact<"sheet", Metadata>({
       icon: <CopyIcon />,
       description: "Copy as .csv",
       onClick: ({ content }) => {
-        const parsed = parse<string[]>(content, { skipEmptyLines: true });
+        const parsed = parse(content, { skipEmptyLines: true }) as {
+          data: string[][];
+          errors: unknown[];
+          meta: unknown;
+        };
 
-        const nonEmptyRows = parsed.data.filter((row) =>
-          row.some((cell) => cell.trim() !== "")
+        const nonEmptyRows = parsed.data.filter((row: string[]) =>
+          row.some((cell: string) => cell.trim() !== "")
         );
 
         const cleanedCsv = unparse(nonEmptyRows);

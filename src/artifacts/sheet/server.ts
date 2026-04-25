@@ -6,12 +6,20 @@ import { createDocumentHandler } from "@/lib/artifacts/server";
 export const sheetDocumentHandler = createDocumentHandler<"sheet">({
   kind: "sheet",
   onCreateDocument: async ({ title, dataStream, modelId }) => {
+    if (!modelId) {
+      throw new Error("modelId is required");
+    }
+    const model = getLanguageModel(modelId);
+    if (!model) {
+      throw new Error(`Language model not found: ${modelId}`);
+    }
+
     let draftContent = "";
 
     const { fullStream } = streamText({
-      model: getLanguageModel(modelId),
+      model,
       system: `${sheetPrompt}\n\nOutput ONLY the raw CSV data. No explanations, no markdown fences.`,
-      prompt: title,
+      prompt: title ?? "",
     });
 
     for await (const delta of fullStream) {
@@ -28,12 +36,20 @@ export const sheetDocumentHandler = createDocumentHandler<"sheet">({
     return draftContent;
   },
   onUpdateDocument: async ({ document, description, dataStream, modelId }) => {
+    if (!modelId) {
+      throw new Error("modelId is required");
+    }
+    const model = getLanguageModel(modelId);
+    if (!model) {
+      throw new Error(`Language model not found: ${modelId}`);
+    }
+
     let draftContent = "";
 
     const { fullStream } = streamText({
-      model: getLanguageModel(modelId),
-      system: `${updateDocumentPrompt(document.content, "sheet")}\n\nOutput ONLY the raw CSV data. No explanations, no markdown fences.`,
-      prompt: description,
+      model,
+      system: `${updateDocumentPrompt(document?.content ?? "", "sheet")}\n\nOutput ONLY the raw CSV data. No explanations, no markdown fences.`,
+      prompt: description ?? "",
     });
 
     for await (const delta of fullStream) {

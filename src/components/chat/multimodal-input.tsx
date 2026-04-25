@@ -257,7 +257,8 @@ function PureMultimodalInput({
   const hasSendableImages =
     supportsVision &&
     attachments.some((attachment) => attachment.contentType.startsWith("image/"));
-  const canSubmit = input.trim().length > 0 || hasSendableImages;
+  // Allow sending when there is text OR any attachment (image or document).
+  const canSubmit = input.trim().length > 0 || attachments.length > 0;
 
   const submitForm = useCallback(() => {
     if (sessionStatus === "loading") {
@@ -270,10 +271,7 @@ function PureMultimodalInput({
       return;
     }
 
-    const sendableAttachments = attachments.filter(
-      (attachment) =>
-        supportsVision && attachment.contentType.startsWith("image/")
-    );
+    const sendableAttachments = attachments;
 
     if (!input.trim() && sendableAttachments.length === 0) {
       return;
@@ -292,7 +290,12 @@ function PureMultimodalInput({
           type: "file" as const,
           url: attachment.url,
           name: attachment.name,
+          filename: attachment.name,
           mediaType: attachment.contentType,
+          size: attachment.size,
+          documentId: attachment.documentId,
+          key: attachment.key,
+          sessionId: attachment.sessionId,
         })),
         {
           type: "text",
@@ -324,6 +327,12 @@ function PureMultimodalInput({
 
   const uploadFile = useCallback(
     async (file: File) => {
+      const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+      const maxMB = MAX_FILE_SIZE_BYTES / (1024 * 1024);
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        toast.error(`File too large. Maximum allowed size is ${maxMB}MB.`);
+        return;
+      }
       const formData = new FormData();
       formData.append("file", file);
       formData.append("sessionId", chatId);
@@ -359,6 +368,10 @@ function PureMultimodalInput({
             url: resolvedUrl,
             name: pathname ?? filename ?? key ?? file.name,
             contentType: contentType ?? file.type,
+            size: file.size,
+              documentId: data?.document?.id ?? undefined,
+              key: data?.key ?? key,
+              sessionId: data?.document?.sessionId ?? undefined,
           };
         }
 
@@ -391,6 +404,11 @@ function PureMultimodalInput({
           return;
         }
 
+        if (errorCode === "session_upload_limit_exceeded") {
+          toast.error(message || "Upload limit reached for this session.");
+          return;
+        }
+
         toast.error(message);
       } catch (_error) {
         toast.error("Failed to upload file, please try again!");
@@ -402,7 +420,7 @@ function PureMultimodalInput({
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
-      const filteredFiles = supportsVision
+      let filteredFiles = supportsVision
         ? files
         : files.filter((file) => !file.type.startsWith("image/"));
 
@@ -410,9 +428,16 @@ function PureMultimodalInput({
         toast.error("Selected model does not support images.");
       }
 
+      // Enforce per-upload (one request) file limit of 5 files.
+      const PER_REQUEST_MAX = 5;
       if (filteredFiles.length === 0) {
         setUploadQueue([]);
         return;
+      }
+
+      if (filteredFiles.length > PER_REQUEST_MAX) {
+        toast.error(`You can upload up to ${PER_REQUEST_MAX} files per request. Only the first ${PER_REQUEST_MAX} will be uploaded.`);
+        filteredFiles = filteredFiles.slice(0, PER_REQUEST_MAX);
       }
 
       setUploadQueue(filteredFiles.map((file) => file.name));
@@ -435,6 +460,31 @@ function PureMultimodalInput({
       }
     },
     [setAttachments, uploadFile, supportsVision]
+  );
+
+  const handleRemoveAttachment = useCallback(
+    async (attachment: Attachment) => {
+      if (attachment.documentId) {
+        try {
+          const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+          const res = await fetch(`${basePath}/api/files/${attachment.documentId}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            toast.error(body?.message ?? "Failed to remove uploaded file.");
+            return;
+          }
+        } catch (_err) {
+          toast.error("Failed to remove uploaded file.");
+          return;
+        }
+      }
+
+      setAttachments((current) => current.filter((a) => a.url !== attachment.url));
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    [setAttachments]
   );
 
   const handlePaste = useCallback(
@@ -549,7 +599,7 @@ function PureMultimodalInput({
       </div>
 
       <PromptInput
-        className="[&>div]:rounded-2xl [&>div]:border [&>div]:border-border/30 [&>div]:bg-card/70 [&>div]:shadow-[var(--shadow-composer)] [&>div]:transition-shadow [&>div]:duration-300 [&>div]:focus-within:shadow-[var(--shadow-composer-focus)]"
+        className="[&>div]:rounded-2xl [&>div]:border [&>div]:border-border/30 [&>div]:bg-card/70 [&>div]:shadow-(--shadow-composer) [&>div]:transition-shadow [&>div]:duration-300 [&>div]:focus-within:shadow-(--shadow-composer-focus)"
         onSubmit={() => {
           if (input.startsWith("/")) {
             const query = input.slice(1).trim();
@@ -579,12 +629,7 @@ function PureMultimodalInput({
                 attachment={attachment}
                 key={attachment.url}
                 onRemove={() => {
-                  setAttachments((currentAttachments) =>
-                    currentAttachments.filter((a) => a.url !== attachment.url)
-                  );
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = "";
-                  }
+                  void handleRemoveAttachment(attachment);
                 }}
               />
             ))}
@@ -776,8 +821,8 @@ function PureModelSelectorCompact({
   return (
     <ModelSelector onOpenChange={setOpen} open={open}>
       <ModelSelectorTrigger asChild>
-        <Button
-          className="h-7 max-w-[200px] justify-between gap-1.5 rounded-lg px-2 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+          <Button
+          className="h-7 max-w-50 justify-between gap-1.5 rounded-lg px-2 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
           data-testid="model-selector"
           variant="ghost"
         >

@@ -16,7 +16,7 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -34,7 +34,9 @@ const uploadBodySchema = z.object({
   file: z
     .instanceof(Blob)
     .refine((file) => file.size <= MAX_FILE_SIZE_BYTES, {
-      message: "File size should be less than or equal to 20MB",
+      message: `File size should be less than or equal to ${
+        MAX_FILE_SIZE_BYTES / (1024 * 1024)
+      }MB`,
     })
     .refine((file) => ALLOWED_MIME_TYPES.has(file.type), {
       message: "Unsupported file type",
@@ -90,39 +92,53 @@ export async function POST(request: Request) {
 
     const fileAsFile = fileValue as File;
     const filename = fileAsFile.name || "upload.bin";
-    const sessionId = asOptionalNonEmptyString(formData.get("sessionId"));
+    const requestedSessionId = asOptionalNonEmptyString(formData.get("sessionId"));
 
-    // Enforce that uploads must be associated with an existing session.
-    // Per project flow: uploads must be performed within a created session.
-    if (!sessionId) {
-      return Response.json(
-        {
-          error: "session_required",
-          message:
-            "Uploads must be associated with an existing session. Create a session before uploading.",
+    // If the client did not provide a sessionId, or provided one that does
+    // not yet exist, create a new AI_AGENT session for this user. This
+    // allows uploading directly from the main page where a session may not
+    // have been created yet.
+    let session = null;
+    if (requestedSessionId) {
+      const existing = await prisma.session.findUnique({ where: { id: requestedSessionId } });
+      if (existing && existing.userId !== authSession.user.id) {
+        return Response.json({ error: "forbidden_session", message: "Session not found or invalid for this user." }, { status: 403 });
+      }
+
+      if (existing) {
+        if (existing.sessionType !== "AI_AGENT") {
+          return Response.json({ error: "invalid_session_type", message: "Session exists but is not an AI session." }, { status: 400 });
+        }
+        session = existing;
+      } else {
+        // Claim the requested id for this user by creating the session.
+        session = await prisma.session.create({
+          data: {
+            id: requestedSessionId,
+            userId: authSession.user.id,
+            sessionType: "AI_AGENT",
+            title: filename.slice(0, 80),
+            metadata: {
+              createdVia: "api.files.upload",
+            },
+          },
+        });
+      }
+    } else {
+      // Create a fresh session for this upload when none was supplied.
+      session = await prisma.session.create({
+        data: {
+          userId: authSession.user.id,
+          sessionType: "AI_AGENT",
+          title: filename.slice(0, 80),
+          metadata: {
+            createdVia: "api.files.upload",
+          },
         },
-        { status: 400 }
-      );
+      });
     }
 
-    const session = await prisma.session.findFirst({
-      where: {
-        id: sessionId,
-        userId: authSession.user.id,
-      },
-      select: { id: true, sessionType: true },
-    });
-
-    if (!session || session.sessionType !== "AI_AGENT") {
-      return Response.json(
-        {
-          error: "invalid_session_id",
-          message:
-            "Session not found or invalid for this user. Uploads must be tied to an existing AI session.",
-        },
-        { status: 400 }
-      );
-    }
+    const sessionId = session.id;
 
     const safeName = sanitizeFileName(filename);
     const objectFolder = getFolderFromMime(file.type);
@@ -143,36 +159,103 @@ export async function POST(request: Request) {
     });
 
     try {
-      const document = await prisma.uploadedDocument.create({
-        data: {
-          userId: authSession.user.id,
-          sessionId,
-          filename,
-          mimeType: file.type,
-          sizeBytes: file.size,
-          r2Key: key,
-          checksum,
-          status: "queued",
-          metadata: {
-            bucket: getR2BucketName(),
-            etag: upload.etag,
-            versionId: upload.versionId,
-            folder: objectFolder,
-          },
-        },
-      });
+      // Persist metadata in a transaction while enforcing per-session upload limits.
+      // Rule: default max 10 files per session; if PDFs push projected PDF bytes
+      // past threshold, reduce max to 8. This approximates "8-10 per session as per PDF size".
+      const SESSION_MAX_DEFAULT = 10;
+      const SESSION_MAX_SMALL_PDFS = 8;
+      const PDF_SIZE_THRESHOLD_BYTES = 5 * 1024 * 1024; // 5MB
 
-      const ingestionJob = await prisma.ingestionJob.create({
-        data: {
-          documentId: document.id,
-          userId: authSession.user.id,
-          status: "queued",
-          phase: "upload",
-          metadata: {
-            source: "api.files.upload",
-          },
-        },
-      });
+      let document;
+      let ingestionJob;
+
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          const existing = await tx.uploadedDocument.findMany({
+            where: { sessionId, userId: authSession.user.id },
+            select: { sizeBytes: true, mimeType: true },
+          });
+
+          const existingCount = existing.length;
+          const existingPdfBytes = existing
+            .filter((d) => d.mimeType === "application/pdf")
+            .reduce((s, d) => s + (d.sizeBytes ?? 0), 0);
+
+          const projectedPdfBytes =
+            existingPdfBytes + (file.type === "application/pdf" ? file.size : 0);
+
+          const sessionMax = projectedPdfBytes > PDF_SIZE_THRESHOLD_BYTES ? SESSION_MAX_SMALL_PDFS : SESSION_MAX_DEFAULT;
+
+          if (existingCount >= sessionMax) {
+            const err: any = new Error("session_upload_limit_exceeded");
+            err.code = "SESSION_LIMIT";
+            throw err;
+          }
+
+          const createdDoc = await tx.uploadedDocument.create({
+            data: {
+              userId: authSession.user.id,
+              sessionId,
+              filename,
+              mimeType: file.type,
+              sizeBytes: file.size,
+              r2Key: key,
+              checksum,
+              status: "queued",
+              metadata: {
+                bucket: getR2BucketName(),
+                etag: upload.etag,
+                versionId: upload.versionId,
+                folder: objectFolder,
+              },
+            },
+          });
+
+          const createdJob = await tx.ingestionJob.create({
+            data: {
+              documentId: createdDoc.id,
+              userId: authSession.user.id,
+              status: "queued",
+              phase: "upload",
+              metadata: {
+                source: "api.files.upload",
+              },
+            },
+          });
+
+          return { createdDoc, createdJob, sessionMax, existingCount };
+        });
+
+        document = result.createdDoc;
+        ingestionJob = result.createdJob;
+      } catch (txError: any) {
+        // If we hit the session limit, clean up uploaded R2 object and return an error.
+        if (txError?.message === "session_upload_limit_exceeded" || txError?.code === "SESSION_LIMIT") {
+          try {
+            await deleteR2Object(key);
+          } catch (_cleanupError) {
+            // ignore
+          }
+
+          return Response.json(
+            {
+              error: "session_upload_limit_exceeded",
+              message:
+                "Upload limit reached for this session. Reduce uploads or remove existing files before uploading more.",
+            },
+            { status: 400 }
+          );
+        }
+
+        // For other transaction errors, attempt to cleanup and return a generic DB error.
+        try {
+          await deleteR2Object(key);
+        } catch (_cleanupError) {
+          // ignore
+        }
+
+        return Response.json({ error: "upload_metadata_persist_failed" }, { status: 500 });
+      }
 
       const shouldAutoStartPipeline =
         objectFolder === "documents" && isDocumentPipelineAutoStartEnabled();

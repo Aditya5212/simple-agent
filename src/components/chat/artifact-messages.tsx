@@ -63,6 +63,7 @@ function PureArtifactMessages({
               ? votes.find((vote) => vote.messageId === message.id)
               : undefined
           }
+          supportsVotes={false}
         />
       ))}
 

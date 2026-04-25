@@ -26,9 +26,13 @@ const PureSpreadsheetEditor = ({ content, saveContent }: SheetEditorProps) => {
     if (!content) {
       return new Array(MIN_ROWS).fill(new Array(MIN_COLS).fill(""));
     }
-    const result = parse<string[]>(content, { skipEmptyLines: true });
+    const result = parse(content, { skipEmptyLines: true }) as {
+      data: string[][];
+      errors: unknown[];
+      meta: unknown;
+    };
 
-    const paddedData = result.data.map((row) => {
+    const paddedData = result.data.map((row: string[]) => {
       const paddedRow = [...row];
       while (paddedRow.length < MIN_COLS) {
         paddedRow.push("");
@@ -72,7 +76,7 @@ const PureSpreadsheetEditor = ({ content, saveContent }: SheetEditorProps) => {
   }, []);
 
   const initialRows = useMemo(() => {
-    return parseData.map((row, rowIndex) => {
+    return parseData.map((row: string[], rowIndex: number) => {
       const rowData: Record<string, string | number> = {
         id: rowIndex,
         rowNumber: rowIndex + 1,
@@ -96,10 +100,11 @@ const PureSpreadsheetEditor = ({ content, saveContent }: SheetEditorProps) => {
     return unparse(data);
   };
 
-  const handleRowsChange = (newRows: Record<string, string | number>[]) => {
-    setLocalRows(newRows);
+  const handleRowsChange = (newRows: unknown[]) => {
+    const typedRows = newRows as Record<string, string | number>[];
+    setLocalRows(typedRows);
 
-    const updatedData = newRows.map((row) => {
+    const updatedData = typedRows.map((row) => {
       return columns.slice(1).map((col) => String(row[col.key] ?? ""));
     });
 
