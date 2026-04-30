@@ -56,7 +56,7 @@ import { auth, type UserType } from "@/app/(auth)/auth";
 import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import { prisma } from "@/lib/prisma";
 import { ChatbotError } from "@/lib/errors";
-import { checkIpRateLimit } from "@/lib/ratelimit";
+import { checkIpRateLimit, checkUserRateLimit } from "@/lib/ratelimit";
 import {
   ALLOWED_AGENT_TYPES,
   asObject,
@@ -260,10 +260,13 @@ export async function POST(req: Request) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  await checkIpRateLimit();
+  await checkIpRateLimit(req);
 
   const userType: UserType = authSession.user.type;
   const recentCount = await getRecentConversationCount(authSession.user.id);
+
+  // quick per-user burst protection (short window) in addition to DB-based hourly quota
+  await checkUserRateLimit(authSession.user.id);
   if (recentCount > entitlementsByUserType[userType].maxMessagesPerHour) {
     return new ChatbotError("rate_limit:chat").toResponse();
   }

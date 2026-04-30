@@ -31,17 +31,92 @@ const ALLOWED_MIME_TYPES = new Set([
 ]);
 
 const uploadBodySchema = z.object({
+  // Only enforce server-side size here. Content-type validation is done
+  // by inspecting the file bytes (magic-bytes) below to avoid trusting
+  // the client-provided `file.type` value.
   file: z
     .instanceof(Blob)
     .refine((file) => file.size <= MAX_FILE_SIZE_BYTES, {
       message: `File size should be less than or equal to ${
         MAX_FILE_SIZE_BYTES / (1024 * 1024)
       }MB`,
-    })
-    .refine((file) => ALLOWED_MIME_TYPES.has(file.type), {
-      message: "Unsupported file type",
     }),
 });
+
+function isLikelyText(buffer: Buffer): boolean {
+  const sample = buffer.slice(0, Math.min(buffer.length, 512));
+  let nonPrintable = 0;
+  for (const byte of sample) {
+    if (byte === 0) return false;
+    if (byte >= 0x20 && byte <= 0x7e) continue; // printable ASCII
+    if (byte === 0x09 || byte === 0x0a || byte === 0x0d) continue; // tab/newline/return
+    nonPrintable += 1;
+  }
+
+  return nonPrintable / sample.length < 0.3;
+}
+
+function detectMimeFromBuffer(buffer: Buffer, filename: string | null): string | null {
+  if (buffer.length >= 4) {
+    // JPEG
+    if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+      return "image/jpeg";
+    }
+
+    // PNG
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47
+    ) {
+      return "image/png";
+    }
+
+    // GIF
+    const gif = buffer.toString("ascii", 0, Math.min(6, buffer.length));
+    if (gif === "GIF87a" || gif === "GIF89a") return "image/gif";
+
+    // WEBP (RIFF....WEBP)
+    if (buffer.length >= 12) {
+      const riff = buffer.toString("ascii", 0, 4);
+      const webp = buffer.toString("ascii", 8, 12);
+      if (riff === "RIFF" && webp === "WEBP") return "image/webp";
+    }
+
+    // PDF
+    if (buffer.toString("ascii", 0, 4) === "%PDF") return "application/pdf";
+
+    // OLE compound file (older MS Office: .doc)
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0xd0 &&
+      buffer[1] === 0xcf &&
+      buffer[2] === 0x11 &&
+      buffer[3] === 0xe0
+    ) {
+      return "application/msword";
+    }
+
+    // ZIP-based (DOCX). Accept only when filename indicates docx.
+    if (buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04) {
+      if (filename && filename.toLowerCase().endsWith(".docx")) {
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      }
+      // otherwise return generic zip/unknown
+      return null;
+    }
+  }
+
+  // Heuristic for text / markdown
+  if (isLikelyText(buffer)) {
+    if (filename && filename.toLowerCase().endsWith(".md")) return "text/markdown";
+    return "text/plain";
+  }
+
+  return null;
+}
 
 function sanitizeFileName(name: string): string {
   return name
@@ -140,17 +215,27 @@ export async function POST(request: Request) {
 
     const sessionId = session.id;
 
-    const safeName = sanitizeFileName(filename);
-    const objectFolder = getFolderFromMime(file.type);
-    const key = `${objectFolder}/${authSession.user.id}/${Date.now()}-${randomUUID()}-${safeName}`;
     const arrayBuffer = await file.arrayBuffer();
     const fileBuffer = Buffer.from(arrayBuffer);
     const checksum = createHash("sha256").update(fileBuffer).digest("hex");
 
+    // Content-based detection (magic-bytes) to avoid trusting client-provided MIME
+    const detectedMime = detectMimeFromBuffer(fileBuffer, filename);
+    if (!detectedMime || !ALLOWED_MIME_TYPES.has(detectedMime)) {
+      return Response.json(
+        { error: "unsupported_file_type", message: "Uploaded file content does not match allowed types." },
+        { status: 400 }
+      );
+    }
+
+    const safeName = sanitizeFileName(filename);
+    const objectFolder = getFolderFromMime(detectedMime);
+    const key = `${objectFolder}/${authSession.user.id}/${Date.now()}-${randomUUID()}-${safeName}`;
+
     const upload = await putR2Object({
       key,
       Body: fileBuffer,
-      ContentType: file.type,
+      ContentType: detectedMime,
       CacheControl: objectFolder === "images" ? "public, max-age=31536000, immutable" : "private, no-store",
       Metadata: {
         userId: authSession.user.id,
@@ -182,7 +267,7 @@ export async function POST(request: Request) {
             .reduce((s, d) => s + (d.sizeBytes ?? 0), 0);
 
           const projectedPdfBytes =
-            existingPdfBytes + (file.type === "application/pdf" ? file.size : 0);
+            existingPdfBytes + (detectedMime === "application/pdf" ? file.size : 0);
 
           const sessionMax = projectedPdfBytes > PDF_SIZE_THRESHOLD_BYTES ? SESSION_MAX_SMALL_PDFS : SESSION_MAX_DEFAULT;
 
@@ -197,7 +282,7 @@ export async function POST(request: Request) {
               userId: authSession.user.id,
               sessionId,
               filename,
-              mimeType: file.type,
+              mimeType: detectedMime,
               sizeBytes: file.size,
               r2Key: key,
               checksum,
@@ -330,7 +415,7 @@ export async function POST(request: Request) {
         signedUrl: signedDownload?.url ?? null,
         signedUrlExpiresAt: signedDownload?.expiresAt ?? null,
         filename,
-        contentType: file.type,
+        contentType: detectedMime,
         size: file.size,
         checksum,
         etag: upload.etag,
